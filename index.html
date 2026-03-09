@@ -2,25 +2,41 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Solver (1h first, then .5 only if needed)</title>
+  <title>Tantárgyfelosztás — Teljes UI + Solver + Excel export + navigáció</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- SheetJS CDN for Excel export -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:18px;background:#f6f7fb;color:#111}
-    .container{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1400px}
-    .card{background:#fff;padding:14px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06)}
-    input,button,select,textarea{padding:8px;border-radius:6px;border:1px solid #ddd}
+    :root{
+      --card-bg: #fff;
+      --page-bg: #f6f7fb;
+      --muted: #666;
+      --accent: #0b6efd;
+      --highlight: rgba(11,110,253,0.12);
+    }
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;background:var(--page-bg);color:#111}
+    header{background:#fff;border-bottom:1px solid #e9eef6;padding:10px 16px;position:sticky;top:0;z-index:50}
+    .topbar{max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:12px}
+    .topbar .logo{font-weight:700}
+    .nav{display:flex;gap:8px;flex-wrap:wrap;margin-left:12px}
+    .nav button{padding:8px 12px;border-radius:8px;border:1px solid #e6eefb;background:#fff;cursor:pointer}
+    main{max-width:1400px;margin:18px auto;padding:0 10px}
+    .container{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .card{background:var(--card-bg);padding:14px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.04)}
+    h1{margin:0 0 8px 0;font-size:20px}
+    h2{margin:0 0 8px 0;font-size:16px}
+    input,button,select,textarea{padding:8px;border-radius:6px;border:1px solid #ddd;font-size:14px}
     button{cursor:pointer;background:#fff}
     .list{margin-top:12px}
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid #f1f1f1}
-    .muted{color:#666;font-size:0.95rem}
-    .small{font-size:0.9rem;color:#666}
+    .muted{color:var(--muted);font-size:0.95rem}
+    .small{font-size:0.9rem;color:var(--muted)}
     .chip{display:inline-block;background:#f1f5f9;padding:6px 8px;border-radius:6px;margin:3px}
-    .groupsBox{margin-top:6px}
-    .groupItem{display:inline-block;background:#eef2ff;padding:6px 8px;border-radius:6px;margin:3px}
     table{border-collapse:collapse;width:100%}
     th,td{border:1px solid #eee;padding:6px;text-align:left;vertical-align:middle;word-break:break-word}
     .csr-wrapper{overflow:auto;border:1px solid #eef2f7;padding:6px;border-radius:6px}
     .csr-table{min-width:900px;border-collapse:collapse;table-layout:auto}
+    /* sticky left column for subject names */
     .csr-table th:first-child,
     .csr-table td:first-child{
       min-width:260px;
@@ -30,9 +46,10 @@
       padding:10px;
       position:sticky;
       left:0;
-      background:#fff;
+      background:var(--card-bg);
       z-index:3;
     }
+    .csr-table thead th{position:sticky;top:0;background:#f9fafb;z-index:5}
     .csr-table th, .csr-table td{white-space:nowrap}
     .csr-table td input[type=number]{ width:110px }
     .teacher-row{border-top:1px solid #eef2f7;padding-top:10px;padding-bottom:10px}
@@ -46,81 +63,139 @@
     .result-area{margin-top:12px;padding:12px;background:#fff;border-radius:8px;border:1px solid #eee}
     .ok{color:green;font-weight:600}
     .bad{color:#b91c1c;font-weight:700}
+    .btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .section-footer{margin-top:12px;display:flex;justify-content:flex-end;gap:8px}
+    /* highlight classes for CSR row/col hover */
+    .csr-highlight-row { background: var(--highlight) !important; }
+    .csr-highlight-col { background: var(--highlight) !important; }
+    /* small responsive */
+    @media (max-width:900px){ .container{grid-template-columns:1fr} .csr-table th:first-child{min-width:200px} }
   </style>
 </head>
 <body>
-  <h1>Tantárgyfelosztás — Solver: 1h elsőként, .5 csak ha kell</h1>
-  <p class="small">A solver először 1 órás egységekben oszt; csak azután ad 0.5-öt azokhoz, amelyek eredeti igénye .5-re végződött.</p>
-
-  <div class="container">
-    <div class="card" id="subjectsCard">
-      <h3>Tantárgyak</h3>
-      <div style="display:flex;gap:8px">
-        <input id="subjectName" placeholder="Tantárgy neve (pl. Matematika)" />
-        <button id="addSubjectBtn">+ Tantárgy</button>
-      </div>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button id="exportSubjectsBtn">Export tantárgy</button>
-        <button id="importSubjectsBtn">Import tantárgy</button>
-        <input id="fileInputSubjects" type="file" accept=".json,application/json" style="display:none" />
-      </div>
-      <div id="subjectsList" class="list"></div>
+  <header>
+    <div class="topbar">
+      <div class="logo">Tantárgyfelosztás</div>
+      <nav class="nav" id="topNav">
+        <button data-target="teachersSection">Tanárok</button>
+        <button data-target="classesSection">Osztályok</button>
+        <button data-target="subjectsSection">Tantárgyak</button>
+        <button data-target="csrSection">CSR tábla</button>
+        <button data-target="solverSection">Solver</button>
+      </nav>
     </div>
+  </header>
 
-    <div class="card" id="classesCard">
-      <h3>Osztályok</h3>
-      <div style="display:flex;gap:8px">
-        <input id="newClassDisplay" placeholder="Új osztály megnevezése (pl. 1.b)" />
-        <button id="addClassBtn">+ Osztály</button>
-      </div>
-      <div id="classesList" class="list" style="margin-top:8px"></div>
+  <main>
+    <h1>Admin felület</h1>
+    <p class="small">Használd a felső menüt a gyors navigációhoz. Minden szekcióban van "Ugrás a következőre" és "Összes törlése".</p>
+
+    <div class="container">
+      <!-- Subjects -->
+      <section id="subjectsSection" class="card" tabindex="-1">
+        <h2>Tantárgyak</h2>
+        <div style="display:flex;gap:8px">
+          <input id="subjectName" placeholder="Tantárgy neve (pl. Matematika)" />
+          <button id="addSubjectBtn">+ Tantárgy</button>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button id="exportSubjectsBtn">Export tantárgy</button>
+          <button id="importSubjectsBtn">Import tantárgy</button>
+          <input id="fileInputSubjects" type="file" accept=".json,application/json" style="display:none" />
+          <button id="clearSubjectsBtn" style="margin-left:auto">Összes törlése</button>
+          <button class="next-btn" data-next="classesSection">Ugrás a következőre</button>
+        </div>
+        <div id="subjectsList" class="list"></div>
+      </section>
+
+      <!-- Classes -->
+      <section id="classesSection" class="card" tabindex="-1">
+        <h2>Osztályok</h2>
+        <div style="display:flex;gap:8px">
+          <input id="newClassDisplay" placeholder="Új osztály megnevezése (pl. 1.b) — ID automatikus" />
+          <button id="addClassBtn">+ Osztály</button>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button id="exportClassesBtn">Export osztályok</button>
+          <button id="importClassesBtn">Import osztályok</button>
+          <input id="fileInputClasses" type="file" accept=".json,application/json" style="display:none" />
+          <button id="clearClassesBtn" style="margin-left:auto">Összes törlése</button>
+          <button class="next-btn" data-next="teachersSection">Ugrás a következőre</button>
+        </div>
+        <div id="classesList" class="list" style="margin-top:8px"></div>
+      </section>
+
+      <!-- Teachers -->
+      <section id="teachersSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
+        <h2>Tanárok</h2>
+        <div style="display:flex;gap:8px">
+          <input id="teacherName" placeholder="Tanár neve (pl. Kovács Anna)" style="flex:1" />
+          <input id="teacherHours" placeholder="Heti óra" type="number" style="width:120px" />
+          <button id="addTeacherBtn">+ Tanár</button>
+        </div>
+        <div class="btn-row" style="margin-top:8px">
+          <button id="exportTeachersBtn">Export Tanárok</button>
+          <button id="importTeachersBtn">Import Tanárok</button>
+          <input id="fileInputTeachers" type="file" accept=".json,application/json" style="display:none" />
+          <button id="clearTeachersBtn" style="margin-left:auto">Összes törlése</button>
+          <button class="next-btn" data-next="csrSection">Ugrás a következőre</button>
+        </div>
+        <div id="teachersList" class="list" style="margin-top:12px"></div>
+      </section>
+
+      <!-- CSR -->
+      <section id="csrSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
+        <h2>CSR (osztály × tantárgy)</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="exportCsrBtn">Export CSR</button>
+          <button id="importCsrBtn">Import CSR</button>
+          <input id="fileInputCsr" type="file" accept=".json,application/json" style="display:none" />
+          <button id="solveBtn" style="margin-left:8px">Solve (Greedy)</button>
+          <button id="exportExcelBtn" style="margin-left:4px">Export Excel</button>
+          <button id="clearCsrBtn" style="margin-left:auto">Összes törlés (CSR)</button>
+          <button class="next-btn" data-next="solverSection">Ugrás a következőre</button>
+        </div>
+
+        <div class="csr-wrapper" style="margin-top:8px">
+          <table id="csrTable" class="csr-table"></table>
+        </div>
+
+        <div id="summaryBox" style="margin-top:8px"></div>
+
+        <div id="solverResults" class="result-area" style="display:none"></div>
+      </section>
+
+      <!-- Solver (extra outputs) -->
+      <section id="solverSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
+        <h2>Solver & Eredmények</h2>
+        <p class="small">A solver először egész órákra oszt, majd .5-units csak azokhoz, amelyek eredetileg .5-re végződtek.</p>
+        <div class="btn-row">
+          <button id="runSolveBtn">Solve (Greedy)</button>
+          <button id="exportAllocationsBtn">Export Allocations (JSON)</button>
+          <button id="clearResultsBtn" style="margin-left:auto">Összes törlése (eredmények)</button>
+        </div>
+        <div id="solveOutput" style="margin-top:12px"></div>
+      </section>
     </div>
-
-    <div class="card" id="teachersCard" style="grid-column:1 / span 2;">
-      <h3>Tanárok</h3>
-      <div style="display:flex;gap:8px">
-        <input id="teacherName" placeholder="Tanár neve (pl. Kovács Anna)" style="flex:1" />
-        <input id="teacherHours" placeholder="Heti óra" type="number" style="width:120px" />
-        <button id="addTeacherBtn">+ Tanár</button>
-      </div>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button id="exportTeachersBtn">Export Tanárok</button>
-        <button id="importTeachersBtn">Import Tanárok</button>
-        <input id="fileInputTeachers" type="file" accept=".json,application/json" style="display:none" />
-      </div>
-      <div id="teachersList" class="list" style="margin-top:12px"></div>
-    </div>
-
-    <div class="card" style="grid-column:1 / -1">
-      <h3>CSR (osztály × tantárgy)</h3>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button id="exportCsrBtn">Export CSR</button>
-        <button id="importCsrBtn">Import CSR</button>
-        <input id="fileInputCsr" type="file" accept=".json,application/json" style="display:none" />
-        <button id="solveBtn" style="margin-left:16px">Solve (Greedy)</button>
-        <div class="muted" style="margin-left:10px">A bal oszlop nagyobb — görgess jobbra a részletekhez.</div>
-      </div>
-
-      <div class="csr-wrapper" style="margin-top:8px">
-        <table id="csrTable" class="csr-table"></table>
-      </div>
-
-      <div id="summaryBox" style="margin-top:8px"></div>
-
-      <div id="solverResults" class="result-area" style="display:none"></div>
-    </div>
-  </div>
+  </main>
 
 <script>
+/* Full single-file app JS
+   - store in window._TF_STORE for external access
+   - solver solveGreedy() available at window._TF_SOLVE
+*/
+
 document.addEventListener('DOMContentLoaded', ()=>{
 
+  // ---------- Store ----------
   const store = { subjects: [], classes: [], csr: [], teachers: [] };
+  window._TF_STORE = store;
 
-  // helpers
-  const removeAccents = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  // ---------- Helpers ----------
+  const removeAccents = s => s.normalize ? s.normalize('NFD').replace(/[\u0300-\u036f]/g,'') : s;
   const makeSubjectId = name => {
     const a = removeAccents(name).toLowerCase().replace(/[^a-z0-9]/g,'');
-    let id = a.slice(0,4) || a || 'sub'; let i=1; const base=id;
+    let id = a.slice(0,4) || a || 'sub'; let i=1; const base = id;
     while(store.subjects.some(s=>s.subject_id===id)){ id = `${base}_${i}`; i++; }
     return id;
   };
@@ -137,8 +212,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return id;
   };
   const el = id => document.getElementById(id);
+  const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
 
-  // init classes: M1 & M2
+  // ---------- Initial classes (1A..8B + M1 M2) ----------
   function initDefaultClasses(){
     store.classes = [];
     for(let g=1; g<=8; g++) ['A','B'].forEach(s=> store.classes.push({class_id:`${g}${s}`, display_name:`${g}.${s.toLowerCase()}`, groups:[]}));
@@ -146,7 +222,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     store.classes.push({class_id:'M2', display_name:'Magántanuló 2', groups:[]});
   }
 
-  // renderers (subjects, classes, teachers, CSR, summary) — same as before
+  // ---------- Renderers ----------
   function renderSubjects(){
     const box = el('subjectsList'); box.innerHTML='';
     if(store.subjects.length===0){ box.textContent='Nincsenek tantárgyak'; return; }
@@ -167,6 +243,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   function renderClasses(){
     const box = el('classesList'); box.innerHTML='';
+    if(store.classes.length===0){ box.textContent = 'Nincsenek osztályok'; return; }
     store.classes.forEach(c=>{
       const row = document.createElement('div'); row.className='item';
       row.innerHTML = `<div><strong>${c.display_name}</strong> <span class="muted">(${c.class_id})</span></div>
@@ -244,23 +321,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   }
 
+  // CSR rendering + hover highlight features
   function renderCSR(){
     const table = el('csrTable'); table.innerHTML='';
     if(store.subjects.length===0 || store.classes.length===0){ table.innerHTML = '<tr><td>Adj meg tantárgyakat és osztályokat</td></tr>'; return; }
     let html = '<thead><tr><th></th>';
-    store.classes.forEach(c=> html += `<th>${c.class_id}</th>`);
+    store.classes.forEach(c=> html += `<th data-col="${c.class_id}">${c.class_id}</th>`);
     html += '</tr></thead><tbody>';
     store.subjects.forEach(s=>{
-      html += `<tr><th>${s.display_name} (${s.subject_id})</th>`;
+      html += `<tr data-sub="${s.subject_id}"><th>${s.display_name} (${s.subject_id})</th>`;
       store.classes.forEach(c=>{
         const rec = store.csr.find(x=>x.class_id===c.class_id && x.subject_id===s.subject_id);
         const v = rec ? Number(rec.hours_per_week||0) : 0;
-        html += `<td><input type="number" step="0.5" min="0" data-class="${c.class_id}" data-sub="${s.subject_id}" value="${v}" /></td>`;
+        html += `<td data-class="${c.class_id}" data-sub="${s.subject_id}"><input type="number" step="0.5" min="0" data-class="${c.class_id}" data-sub="${s.subject_id}" value="${v}" /></td>`;
       });
       html += '</tr>';
     });
     html += '</tbody>';
     table.innerHTML = html;
+
+    // attach input change handlers
     table.querySelectorAll('input[data-class]').forEach(inp=>{
       inp.style.width = '110px';
       inp.addEventListener('change', ()=>{
@@ -270,7 +350,40 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if(idx>=0) store.csr[idx].hours_per_week = val; else store.csr.push({class_id, subject_id, hours_per_week: val});
         renderSummary();
       });
+      // hover highlight: on mouseenter over the containing td, highlight row & column
+      const td = inp.closest('td');
+      td.addEventListener('mouseenter', (ev)=>{
+        const cid = td.getAttribute('data-class'); const sid = td.getAttribute('data-sub');
+        highlightCSRColumn(cid, true);
+        highlightCSRRow(sid, true);
+      });
+      td.addEventListener('mouseleave', (ev)=>{
+        const cid = td.getAttribute('data-class'); const sid = td.getAttribute('data-sub');
+        highlightCSRColumn(cid, false);
+        highlightCSRRow(sid, false);
+      });
     });
+  }
+
+  function highlightCSRColumn(class_id, on){
+    const table = el('csrTable');
+    if(!table) return;
+    // highlight all td with data-class=class_id
+    table.querySelectorAll(`td[data-class="${class_id}"]`).forEach(td=>{
+      if(on) td.classList.add('csr-highlight-col'); else td.classList.remove('csr-highlight-col');
+    });
+    // Also highlight the header th for that column
+    const header = table.querySelector(`thead th[data-col="${class_id}"]`);
+    if(header) { if(on) header.classList.add('csr-highlight-col'); else header.classList.remove('csr-highlight-col'); }
+  }
+  function highlightCSRRow(subject_id, on){
+    const table = el('csrTable'); if(!table) return;
+    // highlight the entire row with data-sub
+    const row = table.querySelector(`tr[data-sub="${subject_id}"]`);
+    if(row){
+      if(on) row.querySelectorAll('th,td').forEach(cell=>cell.classList.add('csr-highlight-row'));
+      else row.querySelectorAll('th,td').forEach(cell=>cell.classList.remove('csr-highlight-row'));
+    }
   }
 
   function renderSummary(){
@@ -312,142 +425,92 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); tbl.appendChild(trTotals); box.appendChild(tbl);
   }
 
-  // ---------- Solver: 1h-first, then .5-only-if-originally-.5 ----------
+  // ---------- SOLVER (1h-first, then .5 if original had .5) ----------
   function solveGreedy(){
-    // Copy original demands and remember which pairs had .5 in the original value
-    const originalDemand = {}; // originalDemand[class_id][subject_id] = original value
+    const originalDemand = {};
     store.csr.forEach(c => {
       if(!originalDemand[c.class_id]) originalDemand[c.class_id] = {};
       originalDemand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0);
     });
-
-    // Build demand copy that we'll modify
     const demand = {};
     store.csr.forEach(c => {
       if(!demand[c.class_id]) demand[c.class_id] = {};
       demand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0);
     });
-
-    // teacher remaining capacity (start from weekly_hours)
     const teacherRemaining = {};
     store.teachers.forEach(t => { teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0); });
-
     const allocations = [];
 
-    // 1) Apply fixed assignments (reduce demand and teacher capacity, record allocations)
+    // apply fixed
     store.teachers.forEach(t => {
       (t.fixed || []).forEach(f => {
         const hours = Number(f.hours || 0);
         if(demand[f.class_id] && demand[f.class_id][f.subject_id] !== undefined){
           const before = demand[f.class_id][f.subject_id];
-          // fixed should reduce demand up to min(before, hours)
           const used = Math.min(before, hours);
-          demand[f.class_id][f.subject_id] = +(before - used).toFixed(2);
+          demand[f.class_id][f.subject_id] = round2(before - used);
         }
-        teacherRemaining[t.teacher_id] = +(teacherRemaining[t.teacher_id] - hours).toFixed(2);
+        teacherRemaining[t.teacher_id] = round2(teacherRemaining[t.teacher_id] - hours);
         allocations.push({teacher_id: t.teacher_id, class_id: f.class_id, subject_id: f.subject_id, hours: hours, fixed: true});
       });
     });
 
-    // 2) Prepare helper: subject -> teachers who can teach it
+    // teachers by subject
     const teachersBySubject = {};
-    store.teachers.forEach(t => {
-      (t.subjects || []).forEach(sid => {
-        if(!teachersBySubject[sid]) teachersBySubject[sid] = [];
-        teachersBySubject[sid].push(t.teacher_id);
-      });
-    });
+    store.teachers.forEach(t => { (t.subjects || []).forEach(sid => { if(!teachersBySubject[sid]) teachersBySubject[sid]=[]; teachersBySubject[sid].push(t.teacher_id); }); });
 
-    // Helper to sort candidates by remaining capacity desc
-    function sortCandidatesByCap(candidates){
-      candidates.sort((a,b)=> (teacherRemaining[b] || 0) - (teacherRemaining[a] || 0));
-    }
+    function sortCandidates(cands){ cands.sort((a,b)=> (teacherRemaining[b]||0) - (teacherRemaining[a]||0)); }
 
-    // Helper: safe numeric rounding
-    function round2(v){ return Math.round((v + Number.EPSILON) * 100) / 100; }
-
-    // 3) FIRST PASS: allocate integer hours (1.0) for every (subject,class)
     const classList = store.classes.map(c=>c.class_id);
     const subjectList = store.subjects.map(s=>s.subject_id);
 
+    // FIRST PASS: integer hours
     for(const sid of subjectList){
       for(const cid of classList){
-        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        rem = round2(rem);
-        const intPart = Math.floor(rem); // how many full hours to allocate
+        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0; rem = round2(rem);
+        const intPart = Math.floor(rem);
         if(intPart <= 0) continue;
-
-        // candidates who can teach this subject and have at least 1 hour capacity
         let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 1);
-
         if(candidates.length === 0) continue;
-
-        // sort once
-        sortCandidatesByCap(candidates);
-
-        let toAssign = intPart; // number of 1-hour units to assign
-        // Greedy: repeatedly assign 1h blocks to teacher with largest remaining capacity
+        sortCandidates(candidates);
+        let toAssign = intPart;
         while(toAssign > 0 && candidates.length > 0){
           const tid = candidates[0];
-          const cap = Math.floor(teacherRemaining[tid]); // how many full 1h units teacher can still take
-          if(cap <= 0){
-            // remove exhausted teacher and continue
-            candidates.shift();
-            continue;
-          }
-          // allocate as many full hours as possible from this teacher in one go
+          const cap = Math.floor(teacherRemaining[tid]);
+          if(cap <= 0){ candidates.shift(); continue; }
           const allocateUnits = Math.min(cap, toAssign);
           const allocateHours = allocateUnits * 1.0;
           allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateHours, fixed: false});
           teacherRemaining[tid] = round2(teacherRemaining[tid] - allocateHours);
           toAssign -= allocateUnits;
           rem = round2(rem - allocateHours);
-          // if teacher still has >=1h capacity keep in candidates, otherwise remove
           if(Math.floor(teacherRemaining[tid]) <= 0) candidates.shift();
         }
-        // write back remaining
         if(!demand[cid]) demand[cid] = {};
         demand[cid][sid] = rem;
       }
     }
 
-    // 4) SECOND PASS: allocate 0.5 ONLY for those pairs whose ORIGINAL demand had .5
-    // For each (sid,cid) where originalDemand % 1 == 0.5 and remaining demand >= 0.5, try to allocate a single 0.5 (or possibly more if multiple halves? but spec: only those with .5)
+    // SECOND PASS: halves only where original had .5
     for(const sid of subjectList){
       for(const cid of classList){
         const orig = (originalDemand[cid] && originalDemand[cid][sid] !== undefined) ? Number(originalDemand[cid][sid]) : 0;
-        // check if original ended with .5 (we check rounded to 1 decimal)
         const origRounded = Math.round((orig + Number.EPSILON)*10)/10;
         const hasHalf = Math.abs(origRounded - Math.floor(origRounded) - 0.5) < 1e-9;
         if(!hasHalf) continue;
-
-        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        rem = round2(rem);
-        // We only allocate half-units (0.5) up to remaining demand (could be 0.5 or more, but original had .5 fractional part).
+        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0; rem = round2(rem);
         if(rem < 0.5) continue;
-
-        // candidates who can teach this subject and have at least 0.5 capacity
         let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 0.5);
         if(candidates.length === 0) continue;
-        // sort by remaining capacity desc
-        sortCandidatesByCap(candidates);
-
-        // allocate as much half-units as possible but generally only one 0.5 per original's fractional unit.
-        // However original could be e.g. 3.5 and rem maybe 0.5; we allocate min(rem, totalHalfUnitsAvailable*0.5)
-        // We'll allocate in 0.5 chunks using best teacher each time until rem < 0.5 or no candidate.
+        sortCandidates(candidates);
         while(rem >= 0.5 && candidates.length > 0){
           const tid = candidates[0];
           const cap = teacherRemaining[tid] || 0;
-          if(cap < 0.5){
-            candidates.shift();
-            continue;
-          }
-          // allocate a single 0.5 chunk (we could allocate more, but spec says .5 only for those needing halves)
+          if(cap < 0.5){ candidates.shift(); continue; }
           const alloc = 0.5;
           allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: alloc, fixed: false});
           teacherRemaining[tid] = round2(teacherRemaining[tid] - alloc);
           rem = round2(rem - alloc);
-          // if teacher capacity < 0.5 remove
           if(teacherRemaining[tid] < 0.5) candidates.shift();
         }
         if(!demand[cid]) demand[cid] = {};
@@ -455,39 +518,36 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
     }
 
-    // 5) collect leftover demands (anything >= 0.5 remaining)
+    // leftover
     const leftover = [];
     Object.keys(demand).forEach(cid=>{
       Object.keys(demand[cid]).forEach(sid=>{
         const h = Number(demand[cid][sid] || 0);
-        if(h >= 0.5 - 1e-9){
-          leftover.push({class_id: cid, subject_id: sid, hours: +h.toFixed(2)});
-        }
+        if(h >= 0.5 - 1e-9) leftover.push({class_id: cid, subject_id: sid, hours: +h.toFixed(2)});
       });
     });
 
     return {allocations, leftover, teacherRemaining};
   }
 
+  window._TF_SOLVE = solveGreedy;
+
   function showSolverResults(res){
     const box = el('solverResults'); box.style.display='block'; box.innerHTML='';
-    const title = document.createElement('div'); title.innerHTML = '<strong>Solver eredmény (Greedy — 1h first, .5 if orig)</strong>';
+    const title = document.createElement('div'); title.innerHTML = '<strong>Solver eredmény (Greedy)</strong>';
     box.appendChild(title);
-    // allocations table
+
     const alloc = res.allocations || [];
     const tbl = document.createElement('table'); tbl.style.marginTop='8px';
-    const thead = document.createElement('thead'); thead.innerHTML = '<tr><th>Tanár</th><th>Osztály</th><th>Tárgy</th><th>Óra</th><th>Fix</th></tr>';
-    tbl.appendChild(thead);
+    tbl.innerHTML = '<thead><tr><th>Tanár</th><th>Osztály</th><th>Tárgy</th><th>Óra</th><th>Fix</th></tr></thead>';
     const tbody = document.createElement('tbody');
     alloc.forEach(a=>{
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${a.teacher_id}</td><td>${a.class_id}</td><td>${a.subject_id}</td><td>${(a.hours%1===0)?String(a.hours):String(a.hours.toFixed(1))}</td><td>${a.fixed? 'igen':'nem'}</td>`;
       tbody.appendChild(tr);
     });
-    tbl.appendChild(tbody);
-    box.appendChild(tbl);
+    tbl.appendChild(tbody); box.appendChild(tbl);
 
-    // leftover
     if(res.leftover && res.leftover.length>0){
       const warn = document.createElement('div'); warn.className='bad'; warn.style.marginTop='10px'; warn.textContent = 'FIGYELEM: van kielégítetlen igény — lásd alább.';
       box.appendChild(warn);
@@ -503,7 +563,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       box.appendChild(ok);
     }
 
-    // show remaining teacher capacities
     const remTable = document.createElement('table'); remTable.style.marginTop='10px';
     remTable.innerHTML = '<thead><tr><th>Tanár</th><th>Maradó kapacitás</th></tr></thead>';
     const rb = document.createElement('tbody');
@@ -512,7 +571,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
     remTable.appendChild(rb); box.appendChild(remTable);
 
-    // export allocations
     const btn = document.createElement('button'); btn.textContent = 'Export allocations (JSON)'; btn.style.marginTop='8px';
     btn.addEventListener('click', ()=> {
       const blob = new Blob([JSON.stringify(res.allocations, null, 2)], {type:'application/json'});
@@ -521,35 +579,112 @@ document.addEventListener('DOMContentLoaded', ()=>{
     box.appendChild(btn);
   }
 
-  // ----- IO & events (same as before) -----
-  el('addSubjectBtn').addEventListener('click', ()=>{ const name=el('subjectName').value.trim(); if(!name){ alert('Adj meg nevet'); return; } store.subjects.push({subject_id: makeSubjectId(name), display_name: name}); el('subjectName').value=''; renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); });
+  // ---------- Excel export (SheetJS) ----------
+  function prepareExportData(){
+    const s = store;
+    const res = solveGreedy();
+    // allocations by teacher
+    const allocByTeacher = {};
+    (res.allocations || []).forEach(a => { allocByTeacher[a.teacher_id] = (allocByTeacher[a.teacher_id]||0) + Number(a.hours||0); });
+
+    const teachersSheet = [];
+    teachersSheet.push(['Tanár azonosító','Tanár név','Heti összes óraszám','Kiosztott óraszám','Maradó óraszám','Megjegyzés']);
+    (s.teachers || []).forEach(t=>{
+      const weekly = Number(t.weekly_hours || 0);
+      const allocated = Number(allocByTeacher[t.teacher_id] || 0);
+      const remaining = round2(weekly - allocated);
+      const note = (remaining < 0) ? 'NEGATÍV KAPACITÁS!' : '';
+      teachersSheet.push([t.teacher_id, t.name, weekly, allocated, remaining, note]);
+    });
+
+    const allocSheet = [];
+    allocSheet.push(['Tanár azonosító','Osztály','Tárgy','Óra','Fix']);
+    (res.allocations || []).forEach(a => allocSheet.push([a.teacher_id, a.class_id, a.subject_id, (a.hours%1===0)?a.hours:a.hours.toFixed(1), a.fixed?'igen':'nem']));
+
+    const classIds = (s.classes || []).map(c=>c.class_id);
+    const subjectNames = (s.subjects || []).map(su=>({id: su.subject_id, name: su.display_name}));
+    const leftoverMap = {};
+    (res.leftover || []).forEach(l => { if(!leftoverMap[l.class_id]) leftoverMap[l.class_id]={}; leftoverMap[l.class_id][l.subject_id] = Number(l.hours||0); });
+
+    const missingSheet = [];
+    const header = ['Tantárgy \\ Osztály'].concat(classIds); missingSheet.push(header);
+    subjectNames.forEach(sn=>{
+      const row=[`${sn.name} (${sn.id})`];
+      classIds.forEach(cid=>{ const v = (leftoverMap[cid] && leftoverMap[cid][sn.id])?leftoverMap[cid][sn.id]:0; row.push((v%1===0)?v:Number(v.toFixed(1))); });
+      missingSheet.push(row);
+    });
+    // totals row
+    const totalsRow=['Összes hiány'];
+    classIds.forEach(cid=>{ let cs=0; subjectNames.forEach(sn=>{ cs += (leftoverMap[cid] && leftoverMap[cid][sn.id])?leftoverMap[cid][sn.id]:0; }); totalsRow.push((cs%1===0)?cs:Number(cs.toFixed(1))); });
+    missingSheet.push(totalsRow);
+
+    const meta=[['Export időpont', new Date().toLocaleString()],['Tantárgyak száma', s.subjects.length],['Osztályok száma', s.classes.length],['Tanárok száma', s.teachers.length],['Allokáció sorok', (res.allocations||[]).length], ['Leftover sorok', (res.leftover||[]).length]];
+
+    return {teachersSheet, allocSheet, missingSheet, meta};
+  }
+
+  function exportToExcelFile(filename){
+    try{
+      const data = prepareExportData();
+      const wb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.aoa_to_sheet(data.teachersSheet); XLSX.utils.book_append_sheet(wb, ws1, 'Teachers Summary');
+      const ws2 = XLSX.utils.aoa_to_sheet(data.allocSheet); XLSX.utils.book_append_sheet(wb, ws2, 'Allocations');
+      const ws3 = XLSX.utils.aoa_to_sheet(data.missingSheet); XLSX.utils.book_append_sheet(wb, ws3, 'MissingHours');
+      const ws4 = XLSX.utils.aoa_to_sheet(data.meta); XLSX.utils.book_append_sheet(wb, ws4, 'Meta');
+      XLSX.writeFile(wb, filename || 'tantargyfelosztas_export.xlsx');
+    } catch(err){
+      console.error('Export error', err); alert('Hiba az export során: ' + err.message);
+    }
+  }
+
+  // ---------- Import/Export & Clear actions ----------
+  // Subjects
+  el('addSubjectBtn').addEventListener('click', ()=>{ const name=el('subjectName').value.trim(); if(!name){ alert('Adj meg nevet'); return; } store.subjects.push({subject_id: makeSubjectId(name), display_name: name}); el('subjectName').value=''; renderSubjects(); renderCSR(); renderSummary(); renderTeachers(); });
   el('exportSubjectsBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.subjects,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='subjects.json'; a.click(); });
   el('importSubjectsBtn').addEventListener('click', ()=> el('fileInputSubjects').click());
-  el('fileInputSubjects').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload = ev => { try{ const parsed = JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('subjects.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(typeof it==='string'){ const name = it.trim(); if(name) store.subjects.push({subject_id:makeSubjectId(name), display_name:name}); } else if(it && typeof it==='object'){ const name = (it.display_name||it.name||'').toString().trim(); const sid = (it.subject_id||it.id||'').toString().trim(); if(name){ const id = sid || makeSubjectId(name); store.subjects.push({subject_id:id, display_name:name}); } } }); renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); alert('Import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
+  el('fileInputSubjects').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload = ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('subjects.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(typeof it==='string'){ const name=it.trim(); if(name) store.subjects.push({subject_id:makeSubjectId(name), display_name:name}); } else if(it && typeof it==='object'){ const name=(it.display_name||it.name||'').toString().trim(); const sid=(it.subject_id||it.id||'').toString().trim(); if(name){ const id = sid || makeSubjectId(name); store.subjects.push({subject_id:id, display_name:name}); } } }); renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); alert('Import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
+  el('clearSubjectsBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes tantárgyat?')) return; store.subjects=[]; store.csr = store.csr.filter(()=>false); store.teachers.forEach(t=> t.subjects=[]); renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); });
 
-  el('addClassBtn').addEventListener('click', ()=>{ const display = el('newClassDisplay').value.trim(); if(!display){ alert('Adj meg nevet'); return; } const id = sanitizeClassId(display); if(store.classes.some(c=>c.class_id.toUpperCase()===id.toUpperCase())){ alert('Ilyen osztály már van'); return; } store.classes.push({class_id:id, display_name:display, groups:[]}); el('newClassDisplay').value=''; renderClasses(); renderCSR(); renderSummary(); renderTeachers(); });
+  // Classes
+  el('addClassBtn').addEventListener('click', ()=>{ const display=el('newClassDisplay').value.trim(); if(!display){ alert('Adj meg nevet'); return; } const id=sanitizeClassId(display); if(store.classes.some(c=>c.class_id.toUpperCase()===id.toUpperCase())){ alert('Ilyen osztály már van'); return; } store.classes.push({class_id:id, display_name:display, groups:[]}); el('newClassDisplay').value=''; renderClasses(); renderCSR(); renderSummary(); renderTeachers(); });
+  el('exportClassesBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.classes,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='classes.json'; a.click(); });
+  el('importClassesBtn').addEventListener('click', ()=> el('fileInputClasses').click());
+  el('fileInputClasses').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('classes.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && (it.class_id||it.display_name)){ const id = it.class_id || sanitizeClassId(it.display_name||''); const name = it.display_name || it.class_id || id; if(!store.classes.some(c=>c.class_id===id)) store.classes.push({class_id:id, display_name:name, groups:[]}); } }); renderClasses(); renderCSR(); renderSummary(); alert('Import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
+  el('clearClassesBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes osztályt?')) return; store.classes=[]; initDefaultClasses(); store.csr = []; store.teachers.forEach(t=>{ if(t.fixed) t.fixed = t.fixed.filter(()=>false); }); renderClasses(); renderCSR(); renderTeachers(); renderSummary(); });
 
-  el('addTeacherBtn').addEventListener('click', ()=>{ const name = el('teacherName').value.trim(); const hours = parseFloat(el('teacherHours').value||'0') || 0; if(!name){ alert('Adj meg nevet'); return; } const id = makeTeacherId(name); store.teachers.push({teacher_id:id, name, weekly_hours: hours, subjects: [], fixed: []}); el('teacherName').value=''; el('teacherHours').value=''; renderTeachers(); });
+  // Teachers
+  el('addTeacherBtn').addEventListener('click', ()=>{ const name=el('teacherName').value.trim(); const hours=parseFloat(el('teacherHours').value||'0')||0; if(!name){ alert('Adj meg nevet'); return; } const id=makeTeacherId(name); store.teachers.push({teacher_id:id, name, weekly_hours: hours, subjects: [], fixed: []}); el('teacherName').value=''; el('teacherHours').value=''; renderTeachers(); });
   el('exportTeachersBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.teachers,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='teachers.json'; a.click(); });
   el('importTeachersBtn').addEventListener('click', ()=> el('fileInputTeachers').click());
-  el('fileInputTeachers').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r = new FileReader(); r.onload = ev => { try{ const parsed = JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('teachers.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && (it.name || it.teacher_id)){ const name = it.name || it.teacher_id || 'Tanár'; let id = it.teacher_id || makeTeacherId(name); if(store.teachers.some(t=>t.teacher_id===id)){ let i=1; while(store.teachers.some(t=>t.teacher_id===`${id}_${i}`)) i++; id = `${id}_${i}`; } const weekly_hours = parseFloat(it.weekly_hours||it.hours||0) || 0; const subjects = Array.isArray(it.subjects) ? it.subjects.slice() : []; const fixed = Array.isArray(it.fixed) ? it.fixed.map(f=>({subject_id:f.subject_id,class_id:f.class_id,hours: parseFloat(f.hours||0)||0, full: !!f.full})) : []; store.teachers.push({teacher_id:id, name, weekly_hours, subjects, fixed}); } }); renderTeachers(); alert('Tanárok importálva'); } catch(err){ alert('Hibás JSON: ' + err.message); } }; r.readAsText(f,'utf-8'); });
+  el('fileInputTeachers').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('teachers.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && (it.name || it.teacher_id)){ const name=it.name || it.teacher_id || 'Tanár'; let id = it.teacher_id || makeTeacherId(name); if(store.teachers.some(t=>t.teacher_id===id)){ let i=1; while(store.teachers.some(t=>t.teacher_id===`${id}_${i}`)) i++; id = `${id}_${i}`; } const weekly_hours = parseFloat(it.weekly_hours||it.hours||0) || 0; const subjects = Array.isArray(it.subjects)?it.subjects.slice():[]; const fixed = Array.isArray(it.fixed)? it.fixed.map(f=>({subject_id:f.subject_id,class_id:f.class_id,hours: parseFloat(f.hours||0)||0, full: !!f.full})):[]; store.teachers.push({teacher_id:id, name, weekly_hours, subjects, fixed}); } }); renderTeachers(); alert('Tanárok importálva'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
+  el('clearTeachersBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes tanárt?')) return; store.teachers=[]; renderTeachers(); });
 
+  // CSR import/export/clear
   el('exportCsrBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.csr,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='csr.json'; a.click(); });
   el('importCsrBtn').addEventListener('click', ()=> el('fileInputCsr').click());
-  el('fileInputCsr').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload = ev => { try{ const parsed = JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('csr.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && it.class_id && it.subject_id){ const h = parseFloat(it.hours_per_week||it.hours||0) || 0; const idx = store.csr.findIndex(x=>x.class_id===it.class_id && x.subject_id===it.subject_id); if(idx>=0) store.csr[idx].hours_per_week = h; else store.csr.push({class_id: it.class_id, subject_id: it.subject_id, hours_per_week: h}); } }); renderCSR(); renderSummary(); renderTeachers(); alert('CSR import kész'); } catch(err){ alert('Hibás JSON: ' + err.message); } }; r.readAsText(f,'utf-8'); });
+  el('fileInputCsr').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('csr.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && it.class_id && it.subject_id){ const h = parseFloat(it.hours_per_week||it.hours||0) || 0; const idx = store.csr.findIndex(x=>x.class_id===it.class_id && x.subject_id===it.subject_id); if(idx>=0) store.csr[idx].hours_per_week = h; else store.csr.push({class_id: it.class_id, subject_id: it.subject_id, hours_per_week: h}); } }); renderCSR(); renderSummary(); renderTeachers(); alert('CSR import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
+  el('clearCsrBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes CSR bejegyzést?')) return; store.csr = []; renderCSR(); renderSummary(); });
 
-  // Solve button
-  el('solveBtn').addEventListener('click', ()=>{
-    try{
-      const res = solveGreedy();
-      showSolverResults(res);
-    } catch(e){
-      alert('Solver hiba: ' + e.message);
-      console.error(e);
-    }
+  // ---------- Solve / Export Excel / Allocations ----------
+  el('solveBtn').addEventListener('click', ()=>{ try{ const res = solveGreedy(); showSolverResults(res); el('solveOutput').innerText = ''; } catch(e){ alert('Solver hiba: '+e.message); console.error(e); }});
+  el('runSolveBtn').addEventListener('click', ()=>{ try{ const res = solveGreedy(); showSolverResults(res); el('solveOutput').innerText = ''; } catch(e){ alert('Solver hiba: '+e.message); console.error(e); }});
+  el('exportAllocationsBtn').addEventListener('click', ()=>{ try{ const res = solveGreedy(); const blob = new Blob([JSON.stringify(res.allocations,null,2)], {type:'application/json'}); const a=document.createElement('a'); a.href = URL.createObjectURL(blob); a.download='allocations.json'; a.click(); URL.revokeObjectURL(a.href);} catch(e){ alert('Hiba: '+e.message); }});
+  el('exportExcelBtn').addEventListener('click', ()=>{ exportToExcelFile('tantargyfelosztas_export.xlsx'); });
+
+  // clear solver results
+  el('clearResultsBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd a solver eredményeket?')) return; el('solverResults').style.display='none'; el('solverResults').innerHTML=''; el('solveOutput').innerHTML=''; });
+
+  // ---------- Navigation helpers ----------
+  // top nav
+  document.querySelectorAll('#topNav button').forEach(b=>{
+    b.addEventListener('click', ()=>{ const t=b.getAttribute('data-target'); const s=el(t); if(s){ s.scrollIntoView({behavior:'smooth',block:'start'}); s.focus(); } });
+  });
+  // next buttons
+  document.querySelectorAll('.next-btn').forEach(b=>{
+    b.addEventListener('click', ()=>{ const t=b.getAttribute('data-next'); const s=el(t); if(s){ s.scrollIntoView({behavior:'smooth',block:'start'}); s.focus(); } });
   });
 
-  // init
+  // ---------- Initialization ----------
   initDefaultClasses();
   renderSubjects();
   renderClasses();
@@ -557,9 +692,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
   renderCSR();
   renderSummary();
 
-  // expose for debugging
-  window._TF_STORE = store;
+  // expose useful funcs
   window._TF_SOLVE = solveGreedy;
+  window.exportToExcelFile = exportToExcelFile;
+
 });
 </script>
 </body>
