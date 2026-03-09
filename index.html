@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — UI (v2)</title>
+  <title>Tantárgyfelosztás — UI (v2) - javított</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     :root{
@@ -104,7 +104,7 @@ const store = {
   subjects: [],   // {subject_id, display_name}
   classes: [],    // {class_id, display_name, grade, groups: [{type, name}]}
   csr: [],        // {class_id, subject_id, hours_per_week}
-  teachers: []    // {teacher_id, name, weekly_hours, subjects: [subject_id,...], fixed: [{subject_id, class_id, hours, full}], assignments: {} (solver output) }
+  teachers: []    // {teacher_id, name, weekly_hours, subjects: [subject_id,...], fixed: [], assignments: {} }
 };
 
 // sanitize and create subject id (first 4 letters, ascii, lowercase)
@@ -231,8 +231,6 @@ function renderTeachers(){
   store.teachers.forEach((t, idx)=>{
     const wrap = document.createElement('div');
     wrap.style.borderTop='1px solid #f1f5f9'; wrap.style.paddingTop='8px'; wrap.style.marginTop='6px';
-    const subjectsHtml = store.subjects.map(s=>`<label style="display:inline-block;margin-right:8px"><input type="checkbox" data-sub="${s.subject_id}" ${t.subjects && t.subjects.includes(s.subject_id)?'checked':''} onchange="toggleTeacherSubject('${t.teacher_id}','${s.subject_id', this)}"> ${s.display_name}</label>`).join('');
-    // NOTE: above inline onchange with 'this' in template is awkward; we'll render differently below
     wrap.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
       <div><strong>${t.teacher_id}</strong> — ${t.name} <span class="muted">(${t.weekly_hours || 0} óra)</span></div>
       <div><button onclick="deleteTeacher('${t.teacher_id}')">Töröl</button></div>
@@ -255,7 +253,6 @@ function renderTeacherSubjects(teacher_id){
   const div = document.createElement('div');
   div.style.marginTop='6px';
   store.subjects.forEach(s=>{
-    const id = `chk_${teacher_id}_${s.subject_id}`;
     const lab = document.createElement('label');
     lab.style.marginRight='8px';
     const inp = document.createElement('input'); inp.type='checkbox'; inp.checked = t.subjects && t.subjects.includes(s.subject_id);
@@ -354,18 +351,18 @@ function addFixedPrompt(teacher_id){
   const t = store.teachers.find(x=>x.teacher_id===teacher_id);
   if(!t) return;
   if(store.subjects.length===0) return alert('Előbb adj meg tantárgyakat!');
-  // select subject
-  const subjectOptions = store.subjects.map(s=>s.subject_id + ' (' + s.display_name + ')').join('\\n');
-  const subj = prompt('Válaszd a tárgy azonosítóját új sorban:\\n' + subjectOptions);
+  // select subject via prompt list
+  const subjectOptions = store.subjects.map(s=>s.subject_id + ' (' + s.display_name + ')').join('\n');
+  const subj = prompt('Válaszd a tárgy azonosítóját új sorban:\n' + subjectOptions);
   if(!subj) return;
   const subject_id = subj.split(/\s+/)[0];
   // select class
-  const classOptions = store.classes.map(c=>c.class_id + ' - ' + c.display_name).join('\\n');
-  const cls = prompt('Válaszd az osztály azonosítóját új sorban:\\n' + classOptions);
+  const classOptions = store.classes.map(c=>c.class_id + ' - ' + c.display_name).join('\n');
+  const cls = prompt('Válaszd az osztály azonosítóját új sorban:\n' + classOptions);
   if(!cls) return;
   const class_id = cls.split(/\s+/)[0];
   // full or specific hours?
-  const full = confirm('Teljes CSR-értéket szeretnéd adni (OK) vagy egy konkrét óraszámot megadni? (Mégse = konkrét szám)');
+  const full = confirm('Teljes CSR-értéket (OK) vagy egy konkrét óraszámot megadni? (Mégse = konkrét szám)');
   let hours = 0;
   if(!full){
     const h = prompt('Hány óra? (szám)');
@@ -412,12 +409,11 @@ async function loadAll(){
     const res = await fetch('/api/load');
     const r = await res.json();
     if(r.status==='ok' && r.data){
-      Object.assign(store, r.data);
-      // ensure arrays exist
-      store.subjects = store.subjects || [];
-      store.classes = store.classes || [];
-      store.csr = store.csr || [];
-      store.teachers = store.teachers || [];
+      // replace store content
+      store.subjects = r.data.subjects || [];
+      store.classes = r.data.classes || [];
+      store.csr = r.data.csr || [];
+      store.teachers = r.data.teachers || [];
       renderAll();
       document.getElementById('actionResult').textContent = 'Betöltés sikeres';
     } else {
@@ -438,7 +434,6 @@ function downloadAll(){
    Solver placeholder
    -------------------------- */
 function calculateAllocation(){
-  // placeholder: show assembled input that solver would receive
   const input = {
     subjects: store.subjects,
     classes: store.classes,
@@ -447,8 +442,7 @@ function calculateAllocation(){
       return {teacher_id:t.teacher_id, name:t.name, weekly_hours:t.weekly_hours, subjects:t.subjects, fixed:t.fixed};
     })
   };
-  document.getElementById('resultBox').textContent = 'SOLVER INPUT PREVIEW (this would be posted to /api/solve):\\n' + JSON.stringify(input,null,2);
-  // Later: POST to /api/solve and render the returned allocation.
+  document.getElementById('resultBox').textContent = 'SOLVER INPUT PREVIEW (this would be posted to /api/solve):\n' + JSON.stringify(input,null,2);
 }
 
 /* --------------------------
