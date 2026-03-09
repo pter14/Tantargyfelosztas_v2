@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Solver & Összes sor</title>
+  <title>Tantárgyfelosztás — Solver (1h first, then .5 only if needed)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     body{font-family:Arial,Helvetica,sans-serif;margin:18px;background:#f6f7fb;color:#111}
@@ -49,8 +49,8 @@
   </style>
 </head>
 <body>
-  <h1>Tantárgyfelosztás — Solver (greedy) + Összes sor</h1>
-  <p class="small">Most: Magántanulók azonosítói M1/M2. Az összegző táblázat alján új "Összes" sor van. A Solve gomb lefuttat egy egyszerű greedy kiosztót.</p>
+  <h1>Tantárgyfelosztás — Solver: 1h elsőként, .5 csak ha kell</h1>
+  <p class="small">A solver először 1 órás egységekben oszt; csak azután ad 0.5-öt azokhoz, amelyek eredeti igénye .5-re végződött.</p>
 
   <div class="container">
     <div class="card" id="subjectsCard">
@@ -112,8 +112,6 @@
   </div>
 
 <script>
-/* Full app + solver (greedy). Keep in sync with your store format */
-
 document.addEventListener('DOMContentLoaded', ()=>{
 
   const store = { subjects: [], classes: [], csr: [], teachers: [] };
@@ -122,9 +120,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const removeAccents = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const makeSubjectId = name => {
     const a = removeAccents(name).toLowerCase().replace(/[^a-z0-9]/g,'');
-    let id = a.slice(0,4) || a || 'sub';
-    // avoid collision
-    let i = 1; let base = id;
+    let id = a.slice(0,4) || a || 'sub'; let i=1; const base=id;
     while(store.subjects.some(s=>s.subject_id===id)){ id = `${base}_${i}`; i++; }
     return id;
   };
@@ -136,14 +132,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   };
   const makeTeacherId = name => {
     const parts = (name||'').trim().split(/\s+/).filter(Boolean);
-    let id = parts.map(p=>p[0].toUpperCase()).join('') || 'T';
-    let i=1; const base=id;
+    let id = parts.map(p=>p[0].toUpperCase()).join('') || 'T'; let i=1; const base=id;
     while(store.teachers.some(t=>t.teacher_id===id)){ id = `${base}_${i}`; i++; }
     return id;
   };
   const el = id => document.getElementById(id);
 
-  // initialize classes with M1/M2 for magántanulók
+  // init classes: M1 & M2
   function initDefaultClasses(){
     store.classes = [];
     for(let g=1; g<=8; g++) ['A','B'].forEach(s=> store.classes.push({class_id:`${g}${s}`, display_name:`${g}.${s.toLowerCase()}`, groups:[]}));
@@ -151,9 +146,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     store.classes.push({class_id:'M2', display_name:'Magántanuló 2', groups:[]});
   }
 
-  // rendering functions
+  // renderers (subjects, classes, teachers, CSR, summary) — same as before
   function renderSubjects(){
-    const box = el('subjectsList'); box.innerHTML = '';
+    const box = el('subjectsList'); box.innerHTML='';
     if(store.subjects.length===0){ box.textContent='Nincsenek tantárgyak'; return; }
     store.subjects.forEach(s=>{
       const row = document.createElement('div'); row.className='item';
@@ -189,14 +184,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
   function renderTeachers(){
     const box = el('teachersList'); box.innerHTML='';
     if(store.teachers.length===0){ box.textContent='Nincsenek tanárok'; return; }
-    store.teachers.forEach((t, idx)=>{
+    store.teachers.forEach((t)=>{
       const container = document.createElement('div'); container.className='teacher-row';
       const meta = document.createElement('div'); meta.className='teacher-meta';
       meta.innerHTML = `<div><strong>${t.teacher_id}</strong> — ${t.name} <span class="muted">(${t.weekly_hours||0} óra)</span></div>
                         <div><button data-id="${t.teacher_id}" class="del-teacher">Törlés</button></div>`;
       container.appendChild(meta);
 
-      // subject checkboxes
       const subjBox = document.createElement('div'); subjBox.className='subject-checkboxes';
       store.subjects.forEach(s=>{
         const lab = document.createElement('label'); lab.style.cursor='pointer';
@@ -279,7 +273,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   }
 
-  // summary with bottom totals row
   function renderSummary(){
     const box = el('summaryBox'); box.innerHTML=''; if(store.subjects.length===0 || store.classes.length===0){ box.textContent='Nincsenek adatok'; return; }
     const tbl = document.createElement('table');
@@ -319,51 +312,45 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); tbl.appendChild(trTotals); box.appendChild(tbl);
   }
 
-  // --- SOLVER (Greedy) ---
-  // returns {allocations: [{teacher_id, class_id, subject_id, hours}], leftover: [{class_id,subject_id,hours}]}
+  // ---------- Solver: 1h-first, then .5-only-if-originally-.5 ----------
   function solveGreedy(){
-    // 1) Prepare copy of CSR demand
-    const demand = {}; // demand[class][subject] = hours (remaining)
+    // Copy original demands and remember which pairs had .5 in the original value
+    const originalDemand = {}; // originalDemand[class_id][subject_id] = original value
+    store.csr.forEach(c => {
+      if(!originalDemand[c.class_id]) originalDemand[c.class_id] = {};
+      originalDemand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0);
+    });
+
+    // Build demand copy that we'll modify
+    const demand = {};
     store.csr.forEach(c => {
       if(!demand[c.class_id]) demand[c.class_id] = {};
       demand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0);
     });
 
-    // 2) Apply fixed assignments and subtract from demand; compute teacher remaining capacity
-    const teacherRemaining = {}; // teacher_id -> remaining hours
-    store.teachers.forEach(t => {
-      // start with weekly_hours
-      teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0);
-    });
+    // teacher remaining capacity (start from weekly_hours)
+    const teacherRemaining = {};
+    store.teachers.forEach(t => { teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0); });
 
-    // allocations array
     const allocations = [];
 
-    // apply fixed assignments: if fixed.full then hours come from CSR; if not, use fixed.hours
+    // 1) Apply fixed assignments (reduce demand and teacher capacity, record allocations)
     store.teachers.forEach(t => {
       (t.fixed || []).forEach(f => {
         const hours = Number(f.hours || 0);
-        // Subtract from demand if exists
         if(demand[f.class_id] && demand[f.class_id][f.subject_id] !== undefined){
-          // reduce demand by min(demand, hours)
           const before = demand[f.class_id][f.subject_id];
+          // fixed should reduce demand up to min(before, hours)
           const used = Math.min(before, hours);
           demand[f.class_id][f.subject_id] = +(before - used).toFixed(2);
-          // if fixed asks for more than CSR, still allocate the fixed hours (solver trusts user's fixed)
-          // we'll reduce teacher capacity by the full fixed hours (so teacherRemaining reflects real commitment)
         }
-        // reduce teacher remaining by full fixed hours
         teacherRemaining[t.teacher_id] = +(teacherRemaining[t.teacher_id] - hours).toFixed(2);
-        if(teacherRemaining[t.teacher_id] < 0) teacherRemaining[t.teacher_id] = +teacherRemaining[t.teacher_id].toFixed(2); // can be negative -> will be reported
-        // record allocation for fixed
         allocations.push({teacher_id: t.teacher_id, class_id: f.class_id, subject_id: f.subject_id, hours: hours, fixed: true});
       });
     });
 
-    // 3) Now greedily assign remaining demand
-    // For deterministic behavior, iterate subjects × classes in order
-    const step = 0.5; // granularity
-    const teachersBySubject = {}; // subject -> list of teacher ids who can teach it
+    // 2) Prepare helper: subject -> teachers who can teach it
+    const teachersBySubject = {};
     store.teachers.forEach(t => {
       (t.subjects || []).forEach(sid => {
         if(!teachersBySubject[sid]) teachersBySubject[sid] = [];
@@ -371,56 +358,110 @@ document.addEventListener('DOMContentLoaded', ()=>{
       });
     });
 
-    // Helper: find teacher with remaining capacity > 0 who can teach subject
-    function findTeacherForSubject(subject_id){
-      const list = teachersBySubject[subject_id] || [];
-      // choose teacher with largest remaining capacity (greedy heuristic)
-      let best = null; let bestCap = -Infinity;
-      list.forEach(tid => {
-        const cap = teacherRemaining[tid] || 0;
-        if(cap > bestCap) { best = tid; bestCap = cap; }
-      });
-      return best;
+    // Helper to sort candidates by remaining capacity desc
+    function sortCandidatesByCap(candidates){
+      candidates.sort((a,b)=> (teacherRemaining[b] || 0) - (teacherRemaining[a] || 0));
     }
 
-    // iterate over subjects and classes
-    store.subjects.forEach(s => {
-      const sid = s.subject_id;
-      store.classes.forEach(c => {
-        const cid = c.class_id;
+    // Helper: safe numeric rounding
+    function round2(v){ return Math.round((v + Number.EPSILON) * 100) / 100; }
+
+    // 3) FIRST PASS: allocate integer hours (1.0) for every (subject,class)
+    const classList = store.classes.map(c=>c.class_id);
+    const subjectList = store.subjects.map(s=>s.subject_id);
+
+    for(const sid of subjectList){
+      for(const cid of classList){
         let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        rem = +rem.toFixed(2);
-        while(rem >= (step - 1e-9)){
-          const tid = findTeacherForSubject(sid);
-          if(!tid) break; // no available teacher for this subject
-          const cap = Math.max(0, teacherRemaining[tid]);
-          if(cap < (step - 1e-9)) {
-            // this teacher no longer useful — try to find other teacher: remove from subject mapping temporarily
-            // simpler: mark teacherRemaining as 0 and continue
-            teacherRemaining[tid] = 0;
+        rem = round2(rem);
+        const intPart = Math.floor(rem); // how many full hours to allocate
+        if(intPart <= 0) continue;
+
+        // candidates who can teach this subject and have at least 1 hour capacity
+        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 1);
+
+        if(candidates.length === 0) continue;
+
+        // sort once
+        sortCandidatesByCap(candidates);
+
+        let toAssign = intPart; // number of 1-hour units to assign
+        // Greedy: repeatedly assign 1h blocks to teacher with largest remaining capacity
+        while(toAssign > 0 && candidates.length > 0){
+          const tid = candidates[0];
+          const cap = Math.floor(teacherRemaining[tid]); // how many full 1h units teacher can still take
+          if(cap <= 0){
+            // remove exhausted teacher and continue
+            candidates.shift();
             continue;
           }
-          const allocate = Math.min(cap, rem);
-          // round allocate down to nearest multiple of step
-          const allocateRounded = Math.floor((allocate + 1e-9) / step) * step;
-          if(allocateRounded <= 0) break;
-          // record allocation
-          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateRounded, fixed: false});
-          // subtract
-          rem = +(rem - allocateRounded).toFixed(2);
-          demand[cid][sid] = rem;
-          teacherRemaining[tid] = +(teacherRemaining[tid] - allocateRounded).toFixed(2);
+          // allocate as many full hours as possible from this teacher in one go
+          const allocateUnits = Math.min(cap, toAssign);
+          const allocateHours = allocateUnits * 1.0;
+          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateHours, fixed: false});
+          teacherRemaining[tid] = round2(teacherRemaining[tid] - allocateHours);
+          toAssign -= allocateUnits;
+          rem = round2(rem - allocateHours);
+          // if teacher still has >=1h capacity keep in candidates, otherwise remove
+          if(Math.floor(teacherRemaining[tid]) <= 0) candidates.shift();
         }
-      });
-    });
+        // write back remaining
+        if(!demand[cid]) demand[cid] = {};
+        demand[cid][sid] = rem;
+      }
+    }
 
-    // build leftover list
+    // 4) SECOND PASS: allocate 0.5 ONLY for those pairs whose ORIGINAL demand had .5
+    // For each (sid,cid) where originalDemand % 1 == 0.5 and remaining demand >= 0.5, try to allocate a single 0.5 (or possibly more if multiple halves? but spec: only those with .5)
+    for(const sid of subjectList){
+      for(const cid of classList){
+        const orig = (originalDemand[cid] && originalDemand[cid][sid] !== undefined) ? Number(originalDemand[cid][sid]) : 0;
+        // check if original ended with .5 (we check rounded to 1 decimal)
+        const origRounded = Math.round((orig + Number.EPSILON)*10)/10;
+        const hasHalf = Math.abs(origRounded - Math.floor(origRounded) - 0.5) < 1e-9;
+        if(!hasHalf) continue;
+
+        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
+        rem = round2(rem);
+        // We only allocate half-units (0.5) up to remaining demand (could be 0.5 or more, but original had .5 fractional part).
+        if(rem < 0.5) continue;
+
+        // candidates who can teach this subject and have at least 0.5 capacity
+        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 0.5);
+        if(candidates.length === 0) continue;
+        // sort by remaining capacity desc
+        sortCandidatesByCap(candidates);
+
+        // allocate as much half-units as possible but generally only one 0.5 per original's fractional unit.
+        // However original could be e.g. 3.5 and rem maybe 0.5; we allocate min(rem, totalHalfUnitsAvailable*0.5)
+        // We'll allocate in 0.5 chunks using best teacher each time until rem < 0.5 or no candidate.
+        while(rem >= 0.5 && candidates.length > 0){
+          const tid = candidates[0];
+          const cap = teacherRemaining[tid] || 0;
+          if(cap < 0.5){
+            candidates.shift();
+            continue;
+          }
+          // allocate a single 0.5 chunk (we could allocate more, but spec says .5 only for those needing halves)
+          const alloc = 0.5;
+          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: alloc, fixed: false});
+          teacherRemaining[tid] = round2(teacherRemaining[tid] - alloc);
+          rem = round2(rem - alloc);
+          // if teacher capacity < 0.5 remove
+          if(teacherRemaining[tid] < 0.5) candidates.shift();
+        }
+        if(!demand[cid]) demand[cid] = {};
+        demand[cid][sid] = rem;
+      }
+    }
+
+    // 5) collect leftover demands (anything >= 0.5 remaining)
     const leftover = [];
-    Object.keys(demand).forEach(cid => {
-      Object.keys(demand[cid]).forEach(sid => {
+    Object.keys(demand).forEach(cid=>{
+      Object.keys(demand[cid]).forEach(sid=>{
         const h = Number(demand[cid][sid] || 0);
-        if(h >= (step / 2)){ // notable leftover
-          leftover.push({class_id: cid, subject_id: sid, hours: +(h).toFixed(2)});
+        if(h >= 0.5 - 1e-9){
+          leftover.push({class_id: cid, subject_id: sid, hours: +h.toFixed(2)});
         }
       });
     });
@@ -428,10 +469,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return {allocations, leftover, teacherRemaining};
   }
 
-  // render solver results as table
   function showSolverResults(res){
     const box = el('solverResults'); box.style.display='block'; box.innerHTML='';
-    const title = document.createElement('div'); title.innerHTML = '<strong>Solver eredmény (Greedy)</strong>';
+    const title = document.createElement('div'); title.innerHTML = '<strong>Solver eredmény (Greedy — 1h first, .5 if orig)</strong>';
     box.appendChild(title);
     // allocations table
     const alloc = res.allocations || [];
@@ -472,7 +512,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
     remTable.appendChild(rb); box.appendChild(remTable);
 
-    // offer export of allocations
+    // export allocations
     const btn = document.createElement('button'); btn.textContent = 'Export allocations (JSON)'; btn.style.marginTop='8px';
     btn.addEventListener('click', ()=> {
       const blob = new Blob([JSON.stringify(res.allocations, null, 2)], {type:'application/json'});
@@ -481,7 +521,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     box.appendChild(btn);
   }
 
-  // --- Event bindings and IO (imports/exports) ---
+  // ----- IO & events (same as before) -----
   el('addSubjectBtn').addEventListener('click', ()=>{ const name=el('subjectName').value.trim(); if(!name){ alert('Adj meg nevet'); return; } store.subjects.push({subject_id: makeSubjectId(name), display_name: name}); el('subjectName').value=''; renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); });
   el('exportSubjectsBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.subjects,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='subjects.json'; a.click(); });
   el('importSubjectsBtn').addEventListener('click', ()=> el('fileInputSubjects').click());
@@ -500,8 +540,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   // Solve button
   el('solveBtn').addEventListener('click', ()=>{
-    const res = solveGreedy();
-    showSolverResults(res);
+    try{
+      const res = solveGreedy();
+      showSolverResults(res);
+    } catch(e){
+      alert('Solver hiba: ' + e.message);
+      console.error(e);
+    }
   });
 
   // init
