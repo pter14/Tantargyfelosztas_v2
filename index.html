@@ -1,134 +1,281 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Tantárgyfelosztás — JSON input</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <title>Tantárgyfelosztás — UI</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body{font-family:Arial,Helvetica,sans-serif;padding:18px;background:#f6f7fb}
-    .box{background:#fff;padding:12px;margin-bottom:12px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
-    label{display:block;margin-top:8px}
-    input,select,textarea{width:100%;padding:8px;margin-top:4px;border:1px solid #ddd;border-radius:4px}
-    button{padding:8px 12px;margin-top:8px;border-radius:6px;cursor:pointer}
-    .row{display:flex;gap:12px}
-    .col{flex:1}
-    .small{font-size:0.9rem;color:#444}
-    pre{background:#f1f5f9;padding:8px;border-radius:6px;overflow:auto}
+    body{font-family:Arial,Helvetica,sans-serif;margin:16px;background:#f6f7fb;color:#111}
+    .card{background:#fff;padding:12px;margin-bottom:12px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+    h2{margin:0 0 8px 0}
+    input,select,textarea,button{padding:6px;border-radius:6px;border:1px solid #ddd}
+    button{cursor:pointer}
+    table{border-collapse:collapse;width:100%;margin-top:8px}
+    th,td{border:1px solid #eee;padding:6px;text-align:left}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .small{font-size:0.9rem;color:#555}
   </style>
 </head>
 <body>
+  <h1>Tantárgyfelosztás — egyszerű UI</h1>
+  <p class="small">Lépésenként add meg a tantárgyakat, osztályokat, majd állítsd be az óraszámokat osztályonként, majd add meg a tanárokat és a hozzárendeléseket.</p>
 
-  <h1>Tantárgyfelosztás — gyors JSON/HTML input</h1>
-  <p class="small">Add meg az adatokat JSON-ban (vagy használd a mintákat), majd exportáld vagy töltsd fel a szerverre.</p>
-
-  <div class="box">
-    <h3>1) Classes (JSON)</h3>
-    <textarea id="classes" rows="5">[{"class_id":"1A","grade":1,"display_name":"1A"},{"class_id":"1B","grade":1,"display_name":"1B"}]</textarea>
-  </div>
-
-  <div class="box">
-    <h3>2) Subjects (JSON)</h3>
-    <textarea id="subjects" rows="5">[{"subject_id":"matek","display_name":"Matematika","is_language_subject":false,"scope":"osztaly"},{"subject_id":"nyelv","display_name":"Nyelv","is_language_subject":true,"scope":"osztaly"},{"subject_id":"inf","display_name":"Informatika","is_language_subject":false,"scope":"evfolyam"}]</textarea>
-  </div>
-
-  <div class="box">
-    <h3>3) Class-Subject Requirements (CSR) (JSON)</h3>
-    <textarea id="csr" rows="6">[{"class_id":"1A","subject_id":"matek","hours_per_week":5,"language_group_spec":"","language_group_hours":"","grouping_scope":"osztaly"},{"class_id":"1A","subject_id":"nyelv","hours_per_week":6,"language_group_spec":"angol:2;nemet:1","language_group_hours":"","grouping_scope":"osztaly"},{"class_id":"1B","subject_id":"nyelv","hours_per_week":4,"language_group_spec":"angol:1;nemet:1","language_group_hours":"angol:2;nemet:2","grouping_scope":"osztaly"}]</textarea>
-  </div>
-
-  <div class="box">
-    <h3>4) Teachers (JSON)</h3>
-    <textarea id="teachers" rows="6">[{"teacher_id":"T1","name":"Kovács Anna","weekly_hours_total":18,"subjects_can_teach":["matek","inf"],"languages_can_teach":[],"fixed_assignments":[]},{"teacher_id":"T2","name":"Szabó Béla","weekly_hours_total":12,"subjects_can_teach":["nyelv"],"languages_can_teach":["angol"],"fixed_assignments":[{"class_id":"1A","subject_id":"nyelv","language":"angol","hours":2}]},{"teacher_id":"T3","name":"Nagy Éva","weekly_hours_total":14,"subjects_can_teach":["nyelv","matek"],"languages_can_teach":["nemet","angol"],"fixed_assignments":[]}]</textarea>
-  </div>
-
-  <div class="row">
-    <div class="col box">
-      <h3>Export / Download</h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <button onclick="download('classes.json', document.getElementById('classes').value)">Download classes.json</button>
-        <button onclick="download('subjects.json', document.getElementById('subjects').value)">Download subjects.json</button>
-        <button onclick="download('csr.json', document.getElementById('csr').value)">Download csr.json</button>
-        <button onclick="download('teachers.json', document.getElementById('teachers').value)">Download teachers.json</button>
-      </div>
+  <div class="card">
+    <h2>Tantárgyak</h2>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="newSubjectName" placeholder="Tantárgy azonosító (pl. matek)" />
+      <input id="newSubjectDisplay" placeholder="Megjelenítendő név (pl. Matematika)" />
+      <label style="display:flex;align-items:center;gap:6px"><input id="newSubjectIsLang" type="checkbox" /> Nyelvi?</label>
+      <button onclick="addSubject()">+ Hozzáad</button>
     </div>
-
-    <div class="col box">
-      <h3>Upload to server (POST JSON)</h3>
-      <label>Server URL</label>
-      <input id="serverUrl" value="http://localhost:8000/api/upload_json" />
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button onclick="upload()">Upload JSON to server</button>
-        <button onclick="preview()">Preview parsed JSON</button>
-      </div>
-      <div id="uploadResult" style="margin-top:8px;color:#333"></div>
-    </div>
+    <div id="subjectsBox" style="margin-top:8px"></div>
   </div>
 
-  <div class="box">
-    <h3>Megjegyzés / Hibák</h3>
-    <p class="small">A mezők JSON tömbök; a backend a következő kulcsokat várja a POST-ban: <code>classes</code>, <code>subjects</code>, <code>csr</code>, <code>teachers</code>.</p>
-    <pre id="previewBox"></pre>
+  <div class="card">
+    <h2>Osztályok & Csoportok</h2>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="newClassId" placeholder="Osztály azonosító (pl. 1A)" />
+      <input id="newClassGrade" placeholder="Évfolyam (opcionális)" style="width:120px" />
+      <input id="newClassGroups" placeholder="Csoportok (pl. angol:2;nemet:1) — opcionális" />
+      <button onclick="addClass()">+ Hozzáad</button>
+    </div>
+    <div id="classesBox" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Óraszükséglet (osztály × tantárgy)</h2>
+    <p class="small">Az alábbi táblázatban add meg osztályonként, tantárgyanként, hány óra/hét szükséges.</p>
+    <div id="csrBox"></div>
+    <button onclick="generateCSRFromInputs()">Frissít/Érvényesít</button>
+  </div>
+
+  <div class="card">
+    <h2>Tanárok</h2>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="newTeacherId" placeholder="Azonosító (pl. T1)" style="width:120px" />
+      <input id="newTeacherName" placeholder="Név" />
+      <input id="newTeacherHours" placeholder="Heti órakeret" style="width:120px" />
+      <button onclick="addTeacher()">+ Hozzáad</button>
+    </div>
+    <div id="teachersBox" style="margin-top:8px"></div>
+    <p class="small">Miután felvetted a tanárokat, kattints a „Generate assignment matrices” gombra — ekkor minden tanárhoz megjelenik egy tantárgy×osztály mátrix, ahol számot adhatsz meg (hány órát vállal ebből a tárgyból az adott osztályban).</p>
+    <button onclick="generateTeacherMatrices()">Generate assignment matrices</button>
+    <div id="matricesBox" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Mentés / Betöltés</h2>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button onclick="saveAll()">Mentés a szerverre</button>
+      <button onclick="loadAll()">Betöltés a szerverről</button>
+      <button onclick="downloadAll()">Export JSON (letöltés)</button>
+    </div>
+    <div id="saveResult" style="margin-top:8px"></div>
   </div>
 
 <script>
-function download(filename, text) {
-  try {
-    // validate JSON
-    JSON.parse(text);
-  } catch (e) {
-    alert('A JSON érvénytelen: ' + e.message);
-    return;
-  }
-  const blob = new Blob([text], {type:'application/json;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
-}
+  // In-memory store
+  let store = {
+    subjects: [],
+    classes: [],
+    csr: [],      // list of { class_id, subject_id, hours_per_week }
+    teachers: []  // list of { teacher_id, name, weekly_hours, assignments: { "<subject>::<class>": hours } }
+  };
 
-async function upload() {
-  const url = document.getElementById('serverUrl').value;
-  let payload;
-  try {
-    payload = {
-      classes: JSON.parse(document.getElementById('classes').value || '[]'),
-      subjects: JSON.parse(document.getElementById('subjects').value || '[]'),
-      csr: JSON.parse(document.getElementById('csr').value || '[]'),
-      teachers: JSON.parse(document.getElementById('teachers').value || '[]')
-    };
-  } catch (err) {
-    document.getElementById('uploadResult').textContent = 'JSON parse hiba: ' + err.message;
-    return;
-  }
-
-  document.getElementById('uploadResult').textContent = 'Uploading...';
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
+  // Utilities
+  function renderSubjects(){
+    const box = document.getElementById('subjectsBox');
+    box.innerHTML = '';
+    store.subjects.forEach(s=>{
+      const el = document.createElement('div');
+      el.textContent = `${s.subject_id} — ${s.display_name} ${s.is_language_subject ? '(nyelv)' : ''}`;
+      box.appendChild(el);
     });
-    const data = await res.json();
-    document.getElementById('uploadResult').textContent = 'Server response: ' + JSON.stringify(data);
-  } catch (err) {
-    document.getElementById('uploadResult').textContent = 'Upload failed: ' + err;
   }
-}
 
-function preview() {
-  try {
+  function renderClasses(){
+    const box = document.getElementById('classesBox');
+    box.innerHTML = '';
+    store.classes.forEach(c=>{
+      const el = document.createElement('div');
+      el.textContent = `${c.class_id} ${c.grade ? '(évfolyam '+c.grade+')' : ''} ${c.groups ? ' — groups: '+c.groups : ''}`;
+      box.appendChild(el);
+    });
+  }
+
+  function renderCSRTable(){
+    const container = document.getElementById('csrBox');
+    if(store.classes.length===0 || store.subjects.length===0){
+      container.innerHTML = '<div class="small">Adj meg legalább 1 osztályt és 1 tantárgyat a táblázat megjelenítéséhez.</div>';
+      return;
+    }
+    // Build table with subjects as rows, classes as columns
+    const tbl = document.createElement('table');
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    trh.appendChild(document.createElement('th'));
+    store.classes.forEach(c=> {
+      const th = document.createElement('th'); th.textContent = c.class_id; trh.appendChild(th);
+    });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    store.subjects.forEach(s=>{
+      const tr = document.createElement('tr');
+      const th = document.createElement('th'); th.textContent = s.subject_id + ' — ' + s.display_name; tr.appendChild(th);
+      store.classes.forEach(c=>{
+        const td = document.createElement('td');
+        const key = `${s.subject_id}::${c.class_id}`;
+        const existing = store.csr.find(x=>x.subject_id===s.subject_id && x.class_id===c.class_id);
+        const inp = document.createElement('input');
+        inp.type='number'; inp.min=0; inp.style.width='80px';
+        inp.value = existing ? existing.hours_per_week : 0;
+        inp.onchange = ()=> {
+          // update or create
+          const val = parseInt(inp.value||0,10);
+          const idx = store.csr.findIndex(x=>x.subject_id===s.subject_id && x.class_id===c.class_id);
+          if(idx>=0){ store.csr[idx].hours_per_week = val; }
+          else { store.csr.push({class_id:c.class_id, subject_id:s.subject_id, hours_per_week:val}); }
+        }
+        td.appendChild(inp);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    container.innerHTML=''; container.appendChild(tbl);
+  }
+
+  function renderTeachers(){
+    const box = document.getElementById('teachersBox');
+    box.innerHTML = '';
+    store.teachers.forEach(t=>{
+      const el = document.createElement('div');
+      el.innerHTML = `<strong>${t.teacher_id}</strong> — ${t.name} — heti: ${t.weekly_hours || 0} óra`;
+      box.appendChild(el);
+    });
+  }
+
+  // Add handlers
+  function addSubject(){
+    const id = document.getElementById('newSubjectName').value.trim();
+    if(!id) return alert('Adj meg tantárgy azonosítót');
+    const disp = document.getElementById('newSubjectDisplay').value.trim() || id;
+    const isLang = document.getElementById('newSubjectIsLang').checked;
+    store.subjects.push({subject_id:id, display_name:disp, is_language_subject:isLang});
+    document.getElementById('newSubjectName').value=''; document.getElementById('newSubjectDisplay').value=''; document.getElementById('newSubjectIsLang').checked=false;
+    renderSubjects(); renderCSRTable();
+  }
+
+  function addClass(){
+    const id = document.getElementById('newClassId').value.trim();
+    if(!id) return alert('Adj meg osztály azonosítót');
+    const grade = document.getElementById('newClassGrade').value.trim();
+    const groups = document.getElementById('newClassGroups').value.trim();
+    store.classes.push({class_id:id, grade: (grade||null), groups: groups||''});
+    document.getElementById('newClassId').value=''; document.getElementById('newClassGrade').value=''; document.getElementById('newClassGroups').value='';
+    renderClasses(); renderCSRTable();
+  }
+
+  function generateCSRFromInputs(){
+    // no-op: inputs already write to store via onchange
+    alert('Az értékek automatikusan mentődnek a táblázat mezőibe (onchange).');
+  }
+
+  function addTeacher(){
+    const id = document.getElementById('newTeacherId').value.trim();
+    if(!id) return alert('Adj meg tanár azonosítót (pl. T1)');
+    const name = document.getElementById('newTeacherName').value.trim() || id;
+    const hours = parseInt(document.getElementById('newTeacherHours').value||0,10);
+    store.teachers.push({teacher_id:id, name:name, weekly_hours: hours, assignments: {}});
+    document.getElementById('newTeacherId').value=''; document.getElementById('newTeacherName').value=''; document.getElementById('newTeacherHours').value='';
+    renderTeachers();
+  }
+
+  function generateTeacherMatrices(){
+    const box = document.getElementById('matricesBox'); box.innerHTML='';
+    if(store.teachers.length===0) { box.innerHTML='<div class="small">Nincs tanár.</div>'; return; }
+    if(store.subjects.length===0 || store.classes.length===0){ box.innerHTML='<div class="small">Adj meg tantárgyakat és osztályokat előbb.</div>'; return; }
+    store.teachers.forEach(t=>{
+      const wrap = document.createElement('div'); wrap.className='card'; wrap.style.marginBottom='8px';
+      wrap.innerHTML = `<h3>${t.teacher_id} — ${t.name} (heti ${t.weekly_hours} óra)</h3>`;
+      const tbl = document.createElement('table');
+      const thead = document.createElement('thead'); const thr = document.createElement('tr'); thr.appendChild(document.createElement('th'));
+      store.classes.forEach(c=> { const th=document.createElement('th'); th.textContent=c.class_id; thr.appendChild(th); });
+      thead.appendChild(thr); tbl.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      store.subjects.forEach(s=>{
+        const tr=document.createElement('tr');
+        const th=document.createElement('th'); th.textContent = s.subject_id; tr.appendChild(th);
+        store.classes.forEach(c=>{
+          const td=document.createElement('td');
+          const key = `${s.subject_id}::${c.class_id}`;
+          const inp = document.createElement('input');
+          inp.type='number'; inp.min=0; inp.style.width='80px';
+          inp.value = t.assignments && t.assignments[key] ? t.assignments[key] : 0;
+          inp.onchange = ()=> {
+            const val = parseInt(inp.value||0,10);
+            t.assignments = t.assignments || {};
+            t.assignments[key]=val;
+          }
+          td.appendChild(inp); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      wrap.appendChild(tbl);
+      box.appendChild(wrap);
+    });
+  }
+
+  // Save / Load
+  async function saveAll(){
+    // assemble CSR from current store.csr (it's updated via inputs)
     const payload = {
-      classes: JSON.parse(document.getElementById('classes').value || '[]'),
-      subjects: JSON.parse(document.getElementById('subjects').value || '[]'),
-      csr: JSON.parse(document.getElementById('csr').value || '[]'),
-      teachers: JSON.parse(document.getElementById('teachers').value || '[]')
+      subjects: store.subjects,
+      classes: store.classes,
+      csr: store.csr,
+      teachers: store.teachers
     };
-    document.getElementById('previewBox').textContent = JSON.stringify(payload, null, 2);
-    document.getElementById('uploadResult').textContent = '';
-  } catch (err) {
-    document.getElementById('previewBox').textContent = 'JSON parse hiba: ' + err.message;
+    try {
+      const res = await fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+      const data = await res.json();
+      document.getElementById('saveResult').textContent = 'Mentés: ' + JSON.stringify(data);
+    } catch (e) {
+      document.getElementById('saveResult').textContent = 'Mentés hiba: ' + e;
+    }
   }
-}
-</script>
 
+  async function loadAll(){
+    try {
+      const res = await fetch('/api/load');
+      const data = await res.json();
+      if(data.status === 'ok' && data.data){
+        store = data.data;
+        // ensure defaults
+        store.csr = store.csr || [];
+        store.subjects = store.subjects || [];
+        store.classes = store.classes || [];
+        store.teachers = store.teachers || [];
+        renderSubjects(); renderClasses(); renderCSRTable(); renderTeachers();
+        document.getElementById('saveResult').textContent = 'Betöltés sikeres.';
+      } else {
+        document.getElementById('saveResult').textContent = 'Betöltés: nincs adat.';
+      }
+    } catch (e) {
+      document.getElementById('saveResult').textContent = 'Betöltés hiba: ' + e;
+    }
+  }
+
+  function downloadAll(){
+    const payload = { subjects: store.subjects, classes: store.classes, csr: store.csr, teachers: store.teachers };
+    const text = JSON.stringify(payload, null, 2);
+    const blob = new Blob([text], {type:'application/json'});
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='tantargy_data.json'; a.click(); URL.revokeObjectURL(url);
+  }
+
+  // initial render
+  renderSubjects(); renderClasses(); renderCSRTable(); renderTeachers();
+
+</script>
 </body>
 </html>
