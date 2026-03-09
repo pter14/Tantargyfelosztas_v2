@@ -2,141 +2,225 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Tantárgyak (teszt)</title>
+  <title>Tantárgyfelosztás — Tantárgyak & Osztályok</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     body{font-family:Arial,Helvetica,sans-serif;margin:18px;background:#f6f7fb;color:#111}
-    .card{background:#fff;padding:14px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
-    input,button{padding:8px;border-radius:6px;border:1px solid #ddd}
+    .container{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1200px}
+    .card{background:#fff;padding:14px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06)}
+    input,button,select,textarea{padding:8px;border-radius:6px;border:1px solid #ddd}
     button{cursor:pointer;background:#fff}
     .list{margin-top:12px}
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid #f1f1f1}
     .muted{color:#666;font-size:0.95rem}
+    .small{font-size:0.9rem;color:#666}
+    .chip{display:inline-block;background:#f1f5f9;padding:6px 8px;border-radius:6px;margin:3px}
   </style>
 </head>
 <body>
-  <div class="card">
-    <h2>Tantárgyak — egyszerű teszt</h2>
-    <p class="muted">Csak tantárgyak hozzáadása és törlése. Azonosító automatikusan jön az első 4 karakterből.</p>
+  <h1>Tantárgyfelosztás — Editor</h1>
+  <p class="small">Kezdd a tantárgyak és osztályok beállításával. Először csak add / töröld őket — később jön a CSR és a tanárkezelés.</p>
 
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <input id="subjectName" placeholder="Tantárgy neve (pl. Matematika)" style="flex:1" />
-      <button id="addBtn">+ Tantárgy</button>
+  <div class="container">
+    <!-- LEFT: Tantárgyak -->
+    <div class="card">
+      <h2>Tantárgyak</h2>
+      <p class="small">Adj hozzá tantárgyat, exportáld/importáld a listát (korábbi export visszatölthető).</p>
+
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="subjectName" placeholder="Tantárgy neve (pl. Matematika)" style="flex:1" />
+        <button id="addBtn">+ Tantárgy</button>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <button id="exportBtn">Export JSON</button>
+        <button id="importBtn">Import JSON</button>
+        <button id="loadSampleBtn">Minták betöltése</button>
+        <input id="fileInput" type="file" accept=".json,application/json" style="display:none" />
+      </div>
+
+      <div class="list" id="subjectsList" aria-live="polite" style="margin-top:12px"></div>
     </div>
 
-    <div style="margin-top:12px">
-      <button id="exportBtn">Export JSON</button>
-      <button id="loadSampleBtn">Minták betöltése</button>
-    </div>
+    <!-- RIGHT: Osztályok -->
+    <div class="card">
+      <h2>Osztályok</h2>
+      <p class="small">Alapból 1A–8A és 1B–8B, plusz Magántanuló_1 és Magántanuló_2. Itt adhatsz hozzá új osztályt vagy törölhetsz bármelyik meglévőt.</p>
 
-    <div class="list" id="subjectsList" aria-live="polite" style="margin-top:12px">
-      <!-- lista ide kerül -->
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <input id="newClassId" placeholder="Osztály azonosító (pl. 9A) " style="width:120px" />
+        <input id="newClassDisplay" placeholder="Megjelenített név (pl. 9.a)" style="flex:1" />
+        <button id="addClassBtn">+ Osztály</button>
+      </div>
+
+      <div class="list" id="classesList" style="margin-top:12px;max-height:420px;overflow:auto"></div>
     </div>
   </div>
 
 <script>
-/* Minimal subject manager
-   - addSubject()
-   - deleteSubject()
-   - renderSubjects()
-   - makeIdFromName() (4 char, ascii, collision handling)
-*/
+/* ---------
+   Store
+   --------- */
+const store = {
+  subjects: [],   // {subject_id, display_name}
+  classes: []     // {class_id, display_name}
+};
 
-const store = { subjects: [] };
-
+/* ------------
+   Subjects util
+   ------------ */
 function sanitizeNameForId(name){
-  // remove accents, non-alnum, lowercase
   const s = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   return s.toLowerCase().replace(/[^a-z0-9]/g,'');
 }
 function makeIdFromName(name, len=4){
   const alpha = sanitizeNameForId(name);
   let id = alpha.slice(0,len) || alpha || 'sub';
-  // avoid collisions by adding suffix _1, _2...
-  const base = id;
-  let i = 1;
+  const base = id; let i = 1;
   while(store.subjects.some(s => s.subject_id === id)){
-    id = `${base}_${i}`;
-    i++;
+    id = `${base}_${i}`; i++;
   }
   return id;
 }
+function escapeHtml(text){ return (text+'').replace(/[&<>"']/g, m=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 
 function renderSubjects(){
-  const list = document.getElementById('subjectsList');
-  list.innerHTML = '';
+  const list = document.getElementById('subjectsList'); list.innerHTML = '';
   if(store.subjects.length === 0){
-    list.innerHTML = '<div class="muted">Még nincs tantárgy. Adj hozzá egyet fent.</div>';
-    return;
+    list.innerHTML = '<div class="muted">Még nincs tantárgy. Adj hozzá egyet fent.</div>'; return;
   }
-  store.subjects.forEach((s, idx) => {
-    const row = document.createElement('div');
-    row.className = 'item';
+  store.subjects.forEach(s=>{
+    const row = document.createElement('div'); row.className='item';
     const left = document.createElement('div');
-    left.innerHTML = `<strong>${escapeHtml(s.display_name)}</strong> <span class="muted">(${s.subject_id})</span>`;
+    left.innerHTML = `<strong>${escapeHtml(s.display_name)}</strong> <span class="muted">(${escapeHtml(s.subject_id)})</span>`;
     const right = document.createElement('div');
-    const del = document.createElement('button');
-    del.textContent = 'Törlés';
-    del.onclick = () => { if(confirm('Biztos törlöd a tantárgyat?')) { deleteSubject(s.subject_id); } };
+    const del = document.createElement('button'); del.textContent='Törlés';
+    del.onclick = ()=>{ if(confirm('Biztos törlöd a tantárgyat?')){ deleteSubject(s.subject_id); } };
     right.appendChild(del);
-    row.appendChild(left);
-    row.appendChild(right);
-    list.appendChild(row);
+    row.appendChild(left); row.appendChild(right); list.appendChild(row);
   });
 }
 
 function addSubject(){
   const inp = document.getElementById('subjectName');
-  const name = (inp.value || '').trim();
-  if(!name){
-    alert('Adj meg egy tantárgy nevet!');
-    return;
-  }
+  const name = (inp.value || '').trim(); if(!name){ alert('Adj meg egy tantárgy nevet!'); return; }
   const id = makeIdFromName(name);
-  store.subjects.push({ subject_id: id, display_name: name });
-  inp.value = '';
-  renderSubjects();
+  store.subjects.push({subject_id:id, display_name:name});
+  inp.value = ''; renderSubjects();
 }
-
-// remove by id
 function deleteSubject(subjectId){
-  store.subjects = store.subjects.filter(s => s.subject_id !== subjectId);
-  renderSubjects();
+  store.subjects = store.subjects.filter(s=>s.subject_id!==subjectId); renderSubjects();
 }
-
-/* small helper: escape HTML when inserting user text */
-function escapeHtml(text){
-  return (text+'').replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
-}
-
-/* export current subjects to JSON download */
 function exportSubjects(){
-  const blob = new Blob([JSON.stringify(store.subjects, null, 2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = 'subjects.json'; a.click(); URL.revokeObjectURL(url);
+  const blob = new Blob([JSON.stringify(store.subjects,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='subjects.json'; a.click(); URL.revokeObjectURL(url);
 }
-
-/* load a small sample set for manual testing */
-function loadSample(){
+function loadSampleSubjects(){
   store.subjects = [
-    {subject_id: makeIdFromName('Matematika'), display_name: 'Matematika'},
-    {subject_id: makeIdFromName('Magyar'), display_name: 'Magyar'},
-    {subject_id: makeIdFromName('Angol'), display_name: 'Angol'}
+    {subject_id: makeIdFromName('Matematika'), display_name:'Matematika'},
+    {subject_id: makeIdFromName('Magyar'), display_name:'Magyar'},
+    {subject_id: makeIdFromName('Angol'), display_name:'Angol'}
   ];
   renderSubjects();
 }
 
-/* init */
+/* ------------
+   Classes util
+   ------------ */
+function initDefaultClasses(){
+  store.classes = [];
+  for(let grade=1; grade<=8; grade++){
+    ['A','B'].forEach(sec=>{
+      store.classes.push({class_id:`${grade}${sec}`, display_name:`${grade}.${sec.toLowerCase()}`});
+    });
+  }
+  // add Magántanulók
+  store.classes.push({class_id:'Magántanuló_1', display_name:'Magántanuló 1'});
+  store.classes.push({class_id:'Magántanuló_2', display_name:'Magántanuló 2'});
+}
+function renderClasses(){
+  const box = document.getElementById('classesList'); box.innerHTML = '';
+  if(store.classes.length===0){ box.innerHTML = '<div class="muted">Nincsenek osztályok</div>'; return; }
+  store.classes.forEach((c, idx)=>{
+    const row = document.createElement('div'); row.className='item';
+    const left = document.createElement('div'); left.innerHTML = `<strong>${escapeHtml(c.display_name)}</strong> <span class="muted">(${escapeHtml(c.class_id)})</span>`;
+    const right = document.createElement('div');
+    const del = document.createElement('button'); del.textContent='Törlés';
+    del.onclick = ()=>{ if(confirm(`Törölöd az osztályt ${c.class_id}?`)) { deleteClass(c.class_id); } };
+    right.appendChild(del);
+    row.appendChild(left); row.appendChild(right); box.appendChild(row);
+  });
+}
+function addClass(){
+  const idInp = document.getElementById('newClassId'); const dispInp = document.getElementById('newClassDisplay');
+  const classId = (idInp.value||'').trim(); const disp = (dispInp.value||'').trim() || classId;
+  if(!classId){ alert('Adj meg legalább egy class_id-t (pl. 9A)'); return; }
+  // check duplicates
+  if(store.classes.some(c=>c.class_id.toLowerCase() === classId.toLowerCase())){ alert('Ilyen azonosítójú osztály már létezik.'); return; }
+  store.classes.push({class_id: classId, display_name: disp});
+  idInp.value=''; dispInp.value='';
+  renderClasses();
+}
+function deleteClass(classId){
+  store.classes = store.classes.filter(c=>c.class_id !== classId);
+  renderClasses();
+}
+
+/* ------------
+   Import logic for subjects
+   ------------ */
+const fileInput = document.getElementById('fileInput');
+document.getElementById('importBtn').addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect(e){
+  const file = e.target.files && e.target.files[0]; fileInput.value='';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev)=>{
+    let parsed;
+    try{ parsed = JSON.parse(ev.target.result); } catch(err){ alert('Hiba: a fájl nem érvényes JSON: ' + err.message); console.error(err); return; }
+    if(!Array.isArray(parsed)){ alert('A JSON-nek tömböt kell tartalmaznia.'); console.error('Import failed: not an array', parsed); return; }
+    const normalized = [];
+    for(const it of parsed){
+      if(typeof it === 'string'){ const name = it.trim(); if(!name) continue; normalized.push({display_name:name, subject_id: makeIdFromName(name)}); }
+      else if(typeof it === 'object' && it !== null){
+        const name = (it.display_name || it.name || it.label || '').toString().trim();
+        const sid = (it.subject_id || it.id || '').toString().trim();
+        if(name){ const subject_id = sid || makeIdFromName(name); normalized.push({display_name:name, subject_id}); }
+        else { console.warn('Skipped item during import (no display_name):', it); }
+      } else { console.warn('Skipped unsupported item during import:', it); }
+    }
+    if(normalized.length === 0){ alert('A fájl nem tartalmazott importálható tantárgyakat.'); return; }
+    const replace = confirm('OK = Felülírás (a jelenlegi tantárgyak törlődnek), Mégse = Hozzáfűzés (merge)');
+    if(replace) store.subjects = [];
+    for(const it of normalized){
+      let id = it.subject_id || makeIdFromName(it.display_name);
+      if(store.subjects.some(s=>s.subject_id === id)){
+        if(store.subjects.some(s=>s.display_name.toLowerCase() === it.display_name.toLowerCase())) continue;
+        const base = id; let i=1; while(store.subjects.some(s=>s.subject_id===id)){ id = `${base}_${i}`; i++; }
+      }
+      store.subjects.push({ subject_id: id, display_name: it.display_name });
+    }
+    renderSubjects(); alert('Import kész. (' + normalized.length + ' tétel feldolgozva)');
+  };
+  reader.onerror = (err)=>{ alert('Fájl beolvasási hiba: ' + err); console.error(err); };
+  reader.readAsText(file, 'utf-8');
+}
+
+/* ------------
+   Init bindings & startup
+   ------------ */
 document.getElementById('addBtn').addEventListener('click', addSubject);
 document.getElementById('exportBtn').addEventListener('click', exportSubjects);
-document.getElementById('loadSampleBtn').addEventListener('click', loadSample);
-document.getElementById('subjectName').addEventListener('keydown', function(e){
-  if(e.key === 'Enter'){ addSubject(); }
-});
+document.getElementById('loadSampleBtn').addEventListener('click', loadSampleSubjects);
+document.getElementById('subjectName').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ addSubject(); } });
 
-/* render initially */
+document.getElementById('addClassBtn').addEventListener('click', addClass);
+
+initDefaultClasses();
 renderSubjects();
-
+renderClasses();
 </script>
 </body>
 </html>
