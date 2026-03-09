@@ -2,457 +2,140 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — UI (v2) - javított</title>
+  <title>Tantárgyfelosztás — Tantárgyak (teszt)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    :root{
-      --card-bg: #fff;
-      --page-bg: #f6f7fb;
-      --muted: #666;
-      --accent: #2563eb;
-    }
-    body{font-family:Inter,Segoe UI,Arial,Helvetica,sans-serif;margin:16px;background:var(--page-bg);color:#111}
-    header{display:flex;align-items:baseline;gap:16px}
-    h1{margin:0;font-size:1.4rem}
-    .sub{color:var(--muted);font-size:.95rem}
-    .grid{display:grid;gap:12px}
-    .cols-3{grid-template-columns:repeat(3,1fr)}
-    .card{background:var(--card-bg);padding:12px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);min-height:140px;overflow:auto}
-    label{display:block;margin-top:8px;font-size:.95rem}
-    input[type="text"], input[type="number"], select, textarea {padding:6px;border-radius:6px;border:1px solid #e2e8f0;width:100%}
-    button{padding:8px 10px;border-radius:6px;border:1px solid #e2e8f0;background:#fff;cursor:pointer}
-    .small{font-size:.9rem;color:var(--muted)}
-    table{border-collapse:collapse;width:100%;margin-top:8px}
-    th,td{border:1px solid #eee;padding:6px;text-align:left;vertical-align:middle}
-    .muted{color:var(--muted)}
-    .row{display:flex;gap:8px;align-items:center}
-    .chip{display:inline-block;background:#f1f5f9;padding:6px 8px;border-radius:6px;margin:3px}
-    .danger{color:#b91c1c}
-    .success{color:#065f46}
-    .actions{display:flex;gap:8px;flex-wrap:wrap}
-    .fixed-badge{display:inline-block;background:#fde68a;padding:3px 6px;border-radius:6px;font-size:.8rem}
+    body{font-family:Arial,Helvetica,sans-serif;margin:18px;background:#f6f7fb;color:#111}
+    .card{background:#fff;padding:14px;border-radius:8px;box-shadow:0 1px 6px rgba(0,0,0,0.06);max-width:900px}
+    input,button{padding:8px;border-radius:6px;border:1px solid #ddd}
+    button{cursor:pointer;background:#fff}
+    .list{margin-top:12px}
+    .item{display:flex;justify-content:space-between;align-items:center;padding:8px 6px;border-bottom:1px solid #f1f1f1}
+    .muted{color:#666;font-size:0.95rem}
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>Tantárgyfelosztás — Admin (v2)</h1>
-      <div class="sub">Adj meg tantárgyakat, csoportokat, tanárokat és a CSR-t; a solver majd kiszámolja a kiosztást.</div>
-    </div>
-  </header>
+  <div class="card">
+    <h2>Tantárgyak — egyszerű teszt</h2>
+    <p class="muted">Csak tantárgyak hozzáadása és törlése. Azonosító automatikusan jön az első 4 karakterből.</p>
 
-  <main style="margin-top:12px" class="grid">
-    <div class="grid cols-3" style="gap:12px">
-      <div class="card" id="subjectsCard">
-        <h3>Tantárgyak</h3>
-        <div class="small">Írd be a teljes nevet, azonosító automatikusan készül (első 4 betű).</div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <input id="newSubjectName" placeholder="Tantárgy neve (pl. Matematika)" />
-          <button onclick="addSubject()">+ Tantárgy</button>
-        </div>
-        <div id="subjectsList" style="margin-top:10px"></div>
-      </div>
-
-      <div class="card" id="classesCard">
-        <h3>Osztályok & Csoportok</h3>
-        <div class="small">Osztályok automatikusan 1.a – 8.b; itt csoportokat adhatsz hozzá konkrét névvel (Angol/Info/Egyéb).</div>
-        <div id="classesList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;max-height:420px;overflow:auto"></div>
-      </div>
-
-      <div class="card" id="csrCard">
-        <h3>Óraszükséglet (CSR)</h3>
-        <div class="small">Add meg, hogy az adott osztálynak hány óra/hét kell tantárgyanként.</div>
-        <div id="csrBox" style="margin-top:8px;min-height:200px;"></div>
-      </div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <input id="subjectName" placeholder="Tantárgy neve (pl. Matematika)" style="flex:1" />
+      <button id="addBtn">+ Tantárgy</button>
     </div>
 
-    <div class="grid cols-3" style="gap:12px">
-      <div class="card" id="teachersCard">
-        <h3>Tanárok</h3>
-        <div class="small">Add meg a tanár nevét és heti órakeretét; pipáld ki, mely tantárgyakat tudja tanítani. Adj hozzá fix hozzárendelést, ha kell.</div>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-          <input id="newTeacherName" placeholder="Név (pl. Kovács Anna)" />
-          <input id="newTeacherHours" placeholder="Heti órakeret" style="width:120px" type="number" />
-          <button onclick="addTeacher()">+ Tanár</button>
-        </div>
-        <div id="teachersList" style="margin-top:12px;max-height:360px;overflow:auto"></div>
-      </div>
-
-      <div class="card" id="actionsCard">
-        <h3>Műveletek</h3>
-        <div class="actions" style="margin-top:8px">
-          <button onclick="downloadAll()">Export JSON</button>
-          <button onclick="saveAll()">Mentés a szerverre</button>
-          <button onclick="loadAll()">Betöltés a szerverről</button>
-          <button onclick="calculateAllocation()">Számítsd ki a kiosztást</button>
-        </div>
-        <div id="actionResult" style="margin-top:10px"></div>
-      </div>
-
-      <div class="card" id="resultCard">
-        <h3>Eredmény / Üzenetek</h3>
-        <div id="resultBox" class="small">A kiosztás a solver lefutása után jelenik meg itt. (Most a gomb csak placeholder — később hívja a /api/solve endpointot.)</div>
-      </div>
+    <div style="margin-top:12px">
+      <button id="exportBtn">Export JSON</button>
+      <button id="loadSampleBtn">Minták betöltése</button>
     </div>
-  </main>
+
+    <div class="list" id="subjectsList" aria-live="polite" style="margin-top:12px">
+      <!-- lista ide kerül -->
+    </div>
+  </div>
 
 <script>
-/* --------------------------
-   In-memory store & helpers
-   -------------------------- */
-const store = {
-  subjects: [],   // {subject_id, display_name}
-  classes: [],    // {class_id, display_name, grade, groups: [{type, name}]}
-  csr: [],        // {class_id, subject_id, hours_per_week}
-  teachers: []    // {teacher_id, name, weekly_hours, subjects: [subject_id,...], fixed: [], assignments: {} }
-};
+/* Minimal subject manager
+   - addSubject()
+   - deleteSubject()
+   - renderSubjects()
+   - makeIdFromName() (4 char, ascii, collision handling)
+*/
 
-// sanitize and create subject id (first 4 letters, ascii, lowercase)
+const store = { subjects: [] };
+
+function sanitizeNameForId(name){
+  // remove accents, non-alnum, lowercase
+  const s = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return s.toLowerCase().replace(/[^a-z0-9]/g,'');
+}
 function makeIdFromName(name, len=4){
-  const s = name.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // remove accents
-  const alpha = s.toLowerCase().replace(/[^a-z0-9]/g,'');
-  let id = alpha.slice(0,len) || alpha;
-  if(!id) id = 'sub';
-  // avoid collisions
-  let base = id; let i = 1;
-  while(store.subjects.some(x=>x.subject_id===id)) { id = base + '_' + i; i++; }
-  return id;
-}
-function makeTeacherId(name){
-  // initials
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if(parts.length===0) return 'T';
-  let id = parts.map(p=>p[0].toUpperCase()).join('');
-  let base = id; let i=1;
-  while(store.teachers.some(t=>t.teacher_id===id)){ id = base + '_' + i; i++; }
-  return id;
-}
-
-/* --------------------------
-   Initial classes 1A..8B
-   -------------------------- */
-function initClasses(){
-  store.classes = [];
-  for(let grade=1; grade<=8; grade++){
-    ['A','B'].forEach(sec=>{
-      const class_id = `${grade}${sec}`;
-      const display = `${grade}.${sec.toLowerCase()}`;
-      store.classes.push({class_id, display_name: display, grade, groups: []});
-    });
+  const alpha = sanitizeNameForId(name);
+  let id = alpha.slice(0,len) || alpha || 'sub';
+  // avoid collisions by adding suffix _1, _2...
+  const base = id;
+  let i = 1;
+  while(store.subjects.some(s => s.subject_id === id)){
+    id = `${base}_${i}`;
+    i++;
   }
+  return id;
 }
 
-/* --------------------------
-   Renderers
-   -------------------------- */
 function renderSubjects(){
-  const box = document.getElementById('subjectsList');
-  box.innerHTML = '';
-  store.subjects.forEach(s=>{
-    const row = document.createElement('div');
-    row.style.display='flex'; row.style.justifyContent='space-between'; row.style.alignItems='center'; row.style.marginTop='6px';
-    row.innerHTML = `<div><strong>${s.display_name}</strong> <span class="muted">(${s.subject_id})</span></div>`;
-    const rbtn = document.createElement('div');
-    rbtn.innerHTML = `<button onclick="deleteSubject('${s.subject_id}')">Törlés</button>`;
-    row.appendChild(rbtn);
-    box.appendChild(row);
-  });
-}
-
-function renderClasses(){
-  const box = document.getElementById('classesList');
-  box.innerHTML = '';
-  store.classes.forEach(c=>{
-    const wrap = document.createElement('div');
-    wrap.style.borderTop='1px solid #f1f5f9'; wrap.style.paddingTop='8px';
-    wrap.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-      <div><strong>${c.display_name}</strong> <span class="muted">(${c.class_id})</span></div>
-      <div><button onclick="renderAddGroupPrompt('${c.class_id}')">+ Csoport</button></div>
-    </div>
-    <div id="groups_${c.class_id}" style="margin-top:6px"></div>`;
-    box.appendChild(wrap);
-    renderGroupsForClass(c.class_id);
-  });
-}
-
-function renderGroupsForClass(class_id){
-  const c = store.classes.find(x=>x.class_id===class_id);
-  const container = document.getElementById(`groups_${class_id}`);
-  if(!container) return;
-  container.innerHTML = '';
-  if(c.groups.length===0){ container.innerHTML = '<div class="small muted">Nincsenek csoportok</div>'; return; }
-  c.groups.forEach((g, idx)=>{
-    const div = document.createElement('div'); div.className='chip';
-    div.innerHTML = `<strong>${g.name}</strong> <span class="muted">[${g.type}]</span> <button onclick="deleteGroup('${class_id}',${idx})" style="margin-left:6px">Töröl</button>`;
-    container.appendChild(div);
-  });
-}
-
-function renderCSR(){
-  const box = document.getElementById('csrBox');
-  if(store.classes.length===0 || store.subjects.length===0){
-    box.innerHTML = '<div class="small muted">Adj meg tantárgyakat és osztályokat a CSR megjelenítéséhez.</div>';
+  const list = document.getElementById('subjectsList');
+  list.innerHTML = '';
+  if(store.subjects.length === 0){
+    list.innerHTML = '<div class="muted">Még nincs tantárgy. Adj hozzá egyet fent.</div>';
     return;
   }
-  // build table: header: classes
-  const tbl = document.createElement('table');
-  const thead = document.createElement('thead'); const trh = document.createElement('tr');
-  trh.appendChild(document.createElement('th'));
-  store.classes.forEach(c=>{ const th = document.createElement('th'); th.textContent = c.class_id; trh.appendChild(th); });
-  thead.appendChild(trh); tbl.appendChild(thead);
-  const tbody = document.createElement('tbody');
-  store.subjects.forEach(s=>{
-    const tr = document.createElement('tr');
-    const th = document.createElement('th'); th.textContent = `${s.display_name} (${s.subject_id})`; tr.appendChild(th);
-    store.classes.forEach(c=>{
-      const td = document.createElement('td');
-      const inp = document.createElement('input');
-      inp.type='number'; inp.min=0; inp.style.width='90px';
-      const existing = store.csr.find(x=>x.subject_id===s.subject_id && x.class_id===c.class_id);
-      inp.value = existing ? existing.hours_per_week : 0;
-      inp.onchange = ()=>{
-        const val = parseInt(inp.value||0,10);
-        const idx = store.csr.findIndex(x=>x.subject_id===s.subject_id && x.class_id===c.class_id);
-        if(idx>=0){ store.csr[idx].hours_per_week = val; } else { store.csr.push({subject_id:s.subject_id, class_id:c.class_id, hours_per_week:val}); }
-      };
-      td.appendChild(inp);
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  tbl.appendChild(tbody);
-  box.innerHTML = ''; box.appendChild(tbl);
-}
-
-function renderTeachers(){
-  const box = document.getElementById('teachersList');
-  box.innerHTML = '';
-  if(store.teachers.length===0){ box.innerHTML = '<div class="small muted">Nincsenek tanárok</div>'; return; }
-  store.teachers.forEach((t, idx)=>{
-    const wrap = document.createElement('div');
-    wrap.style.borderTop='1px solid #f1f5f9'; wrap.style.paddingTop='8px'; wrap.style.marginTop='6px';
-    wrap.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
-      <div><strong>${t.teacher_id}</strong> — ${t.name} <span class="muted">(${t.weekly_hours || 0} óra)</span></div>
-      <div><button onclick="deleteTeacher('${t.teacher_id}')">Töröl</button></div>
-    </div>
-    <div id="teacher_${t.teacher_id}_subjects" style="margin-top:8px"></div>
-    <div style="margin-top:8px" id="teacher_${t.teacher_id}_fixed"></div>
-    <div style="margin-top:6px"><button onclick="addFixedPrompt('${t.teacher_id}')">+ Fix hozzárendelés</button></div>
-    `;
-    box.appendChild(wrap);
-    renderTeacherSubjects(t.teacher_id);
-    renderTeacherFixed(t.teacher_id);
+  store.subjects.forEach((s, idx) => {
+    const row = document.createElement('div');
+    row.className = 'item';
+    const left = document.createElement('div');
+    left.innerHTML = `<strong>${escapeHtml(s.display_name)}</strong> <span class="muted">(${s.subject_id})</span>`;
+    const right = document.createElement('div');
+    const del = document.createElement('button');
+    del.textContent = 'Törlés';
+    del.onclick = () => { if(confirm('Biztos törlöd a tantárgyat?')) { deleteSubject(s.subject_id); } };
+    right.appendChild(del);
+    row.appendChild(left);
+    row.appendChild(right);
+    list.appendChild(row);
   });
 }
 
-function renderTeacherSubjects(teacher_id){
-  const t = store.teachers.find(x=>x.teacher_id===teacher_id);
-  const container = document.getElementById(`teacher_${teacher_id}_subjects`);
-  if(!container) return;
-  container.innerHTML = '<div class="small muted">Tanítható tantárgyak:</div>';
-  const div = document.createElement('div');
-  div.style.marginTop='6px';
-  store.subjects.forEach(s=>{
-    const lab = document.createElement('label');
-    lab.style.marginRight='8px';
-    const inp = document.createElement('input'); inp.type='checkbox'; inp.checked = t.subjects && t.subjects.includes(s.subject_id);
-    inp.onchange = ()=>{
-      t.subjects = t.subjects || [];
-      if(inp.checked){
-        if(!t.subjects.includes(s.subject_id)) t.subjects.push(s.subject_id);
-      } else {
-        t.subjects = t.subjects.filter(x=>x!==s.subject_id);
-      }
-    };
-    lab.appendChild(inp); lab.appendChild(document.createTextNode(' ' + s.display_name));
-    div.appendChild(lab);
-  });
-  container.appendChild(div);
-}
-
-function renderTeacherFixed(teacher_id){
-  const t = store.teachers.find(x=>x.teacher_id===teacher_id);
-  const container = document.getElementById(`teacher_${teacher_id}_fixed`);
-  if(!container) return;
-  container.innerHTML = '<div class="small muted">Fix hozzárendelések:</div>';
-  if(!t.fixed || t.fixed.length===0){ container.innerHTML += '<div class="small muted">Nincs fix hozzárendelés</div>'; return; }
-  t.fixed.forEach((f, idx)=>{
-    const div = document.createElement('div'); div.style.marginTop='6px';
-    div.innerHTML = `<span class="chip">${f.subject_id} :: ${f.class_id} — ${f.full ? 'teljes' : (f.hours+' óra')}</span> <button onclick="deleteFixed('${teacher_id}',${idx})">Töröl</button>`;
-    container.appendChild(div);
-  });
-}
-
-/* --------------------------
-   Actions: add/delete
-   -------------------------- */
 function addSubject(){
-  const name = document.getElementById('newSubjectName').value.trim();
-  if(!name) return alert('Adj meg tantárgynevet!');
+  const inp = document.getElementById('subjectName');
+  const name = (inp.value || '').trim();
+  if(!name){
+    alert('Adj meg egy tantárgy nevet!');
+    return;
+  }
   const id = makeIdFromName(name);
-  store.subjects.push({subject_id:id, display_name:name});
-  document.getElementById('newSubjectName').value='';
-  renderSubjects(); renderCSR(); renderTeachers();
+  store.subjects.push({ subject_id: id, display_name: name });
+  inp.value = '';
+  renderSubjects();
 }
 
-function deleteSubject(subId){
-  if(!confirm('Biztos törlöd a tantárgyat? Ez minden kapcsolódó adatot töröl.')) return;
-  store.subjects = store.subjects.filter(s=>s.subject_id!==subId);
-  // remove related csr entries and teacher assignments/fixed
-  store.csr = store.csr.filter(c=>c.subject_id!==subId);
-  store.teachers.forEach(t=>{
-    if(t.subjects) t.subjects = t.subjects.filter(s=>s!==subId);
-    if(t.fixed) t.fixed = t.fixed.filter(f=>f.subject_id!==subId);
-  });
-  renderSubjects(); renderCSR(); renderTeachers();
+// remove by id
+function deleteSubject(subjectId){
+  store.subjects = store.subjects.filter(s => s.subject_id !== subjectId);
+  renderSubjects();
 }
 
-function addGroupToClass(class_id, type, name){
-  const c = store.classes.find(x=>x.class_id===class_id);
-  if(!c) return;
-  c.groups.push({type, name});
-  renderGroupsForClass(class_id);
+/* small helper: escape HTML when inserting user text */
+function escapeHtml(text){
+  return (text+'').replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
 }
 
-function deleteGroup(class_id, idx){
-  if(!confirm('Csoport törlése?')) return;
-  const c = store.classes.find(x=>x.class_id===class_id);
-  if(!c) return;
-  c.groups.splice(idx,1);
-  renderGroupsForClass(class_id);
+/* export current subjects to JSON download */
+function exportSubjects(){
+  const blob = new Blob([JSON.stringify(store.subjects, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'subjects.json'; a.click(); URL.revokeObjectURL(url);
 }
 
-function renderAddGroupPrompt(class_id){
-  const name = prompt('Csoport neve (pl. Angol A):');
-  if(!name) return;
-  const type = prompt('Típus (Angol / Informatika / Egyéb):','Angol') || 'Egyéb';
-  addGroupToClass(class_id, type, name);
+/* load a small sample set for manual testing */
+function loadSample(){
+  store.subjects = [
+    {subject_id: makeIdFromName('Matematika'), display_name: 'Matematika'},
+    {subject_id: makeIdFromName('Magyar'), display_name: 'Magyar'},
+    {subject_id: makeIdFromName('Angol'), display_name: 'Angol'}
+  ];
+  renderSubjects();
 }
 
-/* Teachers */
-function addTeacher(){
-  const name = document.getElementById('newTeacherName').value.trim();
-  const hours = parseInt(document.getElementById('newTeacherHours').value||0,10);
-  if(!name) return alert('Adj meg nevet!');
-  const id = makeTeacherId(name);
-  store.teachers.push({teacher_id:id, name, weekly_hours: hours, subjects: [], fixed: [], assignments: {}});
-  document.getElementById('newTeacherName').value=''; document.getElementById('newTeacherHours').value='';
-  renderTeachers();
-}
+/* init */
+document.getElementById('addBtn').addEventListener('click', addSubject);
+document.getElementById('exportBtn').addEventListener('click', exportSubjects);
+document.getElementById('loadSampleBtn').addEventListener('click', loadSample);
+document.getElementById('subjectName').addEventListener('keydown', function(e){
+  if(e.key === 'Enter'){ addSubject(); }
+});
 
-function deleteTeacher(tid){
-  if(!confirm('Törlöd a tanárt?')) return;
-  store.teachers = store.teachers.filter(t=>t.teacher_id!==tid);
-  renderTeachers();
-}
-
-/* Fixed assignments */
-function addFixedPrompt(teacher_id){
-  const t = store.teachers.find(x=>x.teacher_id===teacher_id);
-  if(!t) return;
-  if(store.subjects.length===0) return alert('Előbb adj meg tantárgyakat!');
-  // select subject via prompt list
-  const subjectOptions = store.subjects.map(s=>s.subject_id + ' (' + s.display_name + ')').join('\n');
-  const subj = prompt('Válaszd a tárgy azonosítóját új sorban:\n' + subjectOptions);
-  if(!subj) return;
-  const subject_id = subj.split(/\s+/)[0];
-  // select class
-  const classOptions = store.classes.map(c=>c.class_id + ' - ' + c.display_name).join('\n');
-  const cls = prompt('Válaszd az osztály azonosítóját új sorban:\n' + classOptions);
-  if(!cls) return;
-  const class_id = cls.split(/\s+/)[0];
-  // full or specific hours?
-  const full = confirm('Teljes CSR-értéket (OK) vagy egy konkrét óraszámot megadni? (Mégse = konkrét szám)');
-  let hours = 0;
-  if(!full){
-    const h = prompt('Hány óra? (szám)');
-    hours = parseInt(h||'0',10) || 0;
-  } else {
-    // find CSR value
-    const csr = store.csr.find(x=>x.subject_id===subject_id && x.class_id===class_id);
-    hours = csr ? csr.hours_per_week : 0;
-  }
-  t.fixed = t.fixed || [];
-  t.fixed.push({subject_id, class_id, hours, full});
-  renderTeacherFixed(teacher_id);
-}
-
-/* delete fixed */
-function deleteFixed(teacher_id, idx){
-  const t = store.teachers.find(x=>x.teacher_id===teacher_id);
-  if(!t) return;
-  t.fixed.splice(idx,1);
-  renderTeacherFixed(teacher_id);
-}
-
-/* --------------------------
-   Save / Load / Export
-   -------------------------- */
-async function saveAll(){
-  const payload = {
-    subjects: store.subjects,
-    classes: store.classes,
-    csr: store.csr,
-    teachers: store.teachers
-  };
-  try{
-    const res = await fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
-    const data = await res.json();
-    document.getElementById('actionResult').textContent = 'Mentés: ' + (data.message || JSON.stringify(data));
-  }catch(e){
-    document.getElementById('actionResult').textContent = 'Mentés hiba: ' + e;
-  }
-}
-
-async function loadAll(){
-  try{
-    const res = await fetch('/api/load');
-    const r = await res.json();
-    if(r.status==='ok' && r.data){
-      // replace store content
-      store.subjects = r.data.subjects || [];
-      store.classes = r.data.classes || [];
-      store.csr = r.data.csr || [];
-      store.teachers = r.data.teachers || [];
-      renderAll();
-      document.getElementById('actionResult').textContent = 'Betöltés sikeres';
-    } else {
-      document.getElementById('actionResult').textContent = 'Betöltés: nincs adat';
-    }
-  }catch(e){
-    document.getElementById('actionResult').textContent = 'Betöltés hiba: ' + e;
-  }
-}
-
-function downloadAll(){
-  const payload = {subjects:store.subjects, classes:store.classes, csr:store.csr, teachers:store.teachers};
-  const blob = new Blob([JSON.stringify(payload,null,2)], {type:'application/json'});
-  const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='tantargy_data.json'; a.click(); URL.revokeObjectURL(url);
-}
-
-/* --------------------------
-   Solver placeholder
-   -------------------------- */
-function calculateAllocation(){
-  const input = {
-    subjects: store.subjects,
-    classes: store.classes,
-    csr: store.csr,
-    teachers: store.teachers.map(t=>{
-      return {teacher_id:t.teacher_id, name:t.name, weekly_hours:t.weekly_hours, subjects:t.subjects, fixed:t.fixed};
-    })
-  };
-  document.getElementById('resultBox').textContent = 'SOLVER INPUT PREVIEW (this would be posted to /api/solve):\n' + JSON.stringify(input,null,2);
-}
-
-/* --------------------------
-   Initialisation & render
-   -------------------------- */
-function renderAll(){
-  renderSubjects(); renderClasses(); renderCSR(); renderTeachers();
-}
-initClasses();
-renderAll();
+/* render initially */
+renderSubjects();
 
 </script>
 </body>
