@@ -1,0 +1,134 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tantárgyfelosztás — JSON input</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:18px;background:#f6f7fb}
+    .box{background:#fff;padding:12px;margin-bottom:12px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+    label{display:block;margin-top:8px}
+    input,select,textarea{width:100%;padding:8px;margin-top:4px;border:1px solid #ddd;border-radius:4px}
+    button{padding:8px 12px;margin-top:8px;border-radius:6px;cursor:pointer}
+    .row{display:flex;gap:12px}
+    .col{flex:1}
+    .small{font-size:0.9rem;color:#444}
+    pre{background:#f1f5f9;padding:8px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+
+  <h1>Tantárgyfelosztás — gyors JSON/HTML input</h1>
+  <p class="small">Add meg az adatokat JSON-ban (vagy használd a mintákat), majd exportáld vagy töltsd fel a szerverre.</p>
+
+  <div class="box">
+    <h3>1) Classes (JSON)</h3>
+    <textarea id="classes" rows="5">[{"class_id":"1A","grade":1,"display_name":"1A"},{"class_id":"1B","grade":1,"display_name":"1B"}]</textarea>
+  </div>
+
+  <div class="box">
+    <h3>2) Subjects (JSON)</h3>
+    <textarea id="subjects" rows="5">[{"subject_id":"matek","display_name":"Matematika","is_language_subject":false,"scope":"osztaly"},{"subject_id":"nyelv","display_name":"Nyelv","is_language_subject":true,"scope":"osztaly"},{"subject_id":"inf","display_name":"Informatika","is_language_subject":false,"scope":"evfolyam"}]</textarea>
+  </div>
+
+  <div class="box">
+    <h3>3) Class-Subject Requirements (CSR) (JSON)</h3>
+    <textarea id="csr" rows="6">[{"class_id":"1A","subject_id":"matek","hours_per_week":5,"language_group_spec":"","language_group_hours":"","grouping_scope":"osztaly"},{"class_id":"1A","subject_id":"nyelv","hours_per_week":6,"language_group_spec":"angol:2;nemet:1","language_group_hours":"","grouping_scope":"osztaly"},{"class_id":"1B","subject_id":"nyelv","hours_per_week":4,"language_group_spec":"angol:1;nemet:1","language_group_hours":"angol:2;nemet:2","grouping_scope":"osztaly"}]</textarea>
+  </div>
+
+  <div class="box">
+    <h3>4) Teachers (JSON)</h3>
+    <textarea id="teachers" rows="6">[{"teacher_id":"T1","name":"Kovács Anna","weekly_hours_total":18,"subjects_can_teach":["matek","inf"],"languages_can_teach":[],"fixed_assignments":[]},{"teacher_id":"T2","name":"Szabó Béla","weekly_hours_total":12,"subjects_can_teach":["nyelv"],"languages_can_teach":["angol"],"fixed_assignments":[{"class_id":"1A","subject_id":"nyelv","language":"angol","hours":2}]},{"teacher_id":"T3","name":"Nagy Éva","weekly_hours_total":14,"subjects_can_teach":["nyelv","matek"],"languages_can_teach":["nemet","angol"],"fixed_assignments":[]}]</textarea>
+  </div>
+
+  <div class="row">
+    <div class="col box">
+      <h3>Export / Download</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button onclick="download('classes.json', document.getElementById('classes').value)">Download classes.json</button>
+        <button onclick="download('subjects.json', document.getElementById('subjects').value)">Download subjects.json</button>
+        <button onclick="download('csr.json', document.getElementById('csr').value)">Download csr.json</button>
+        <button onclick="download('teachers.json', document.getElementById('teachers').value)">Download teachers.json</button>
+      </div>
+    </div>
+
+    <div class="col box">
+      <h3>Upload to server (POST JSON)</h3>
+      <label>Server URL</label>
+      <input id="serverUrl" value="http://localhost:8000/api/upload_json" />
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="upload()">Upload JSON to server</button>
+        <button onclick="preview()">Preview parsed JSON</button>
+      </div>
+      <div id="uploadResult" style="margin-top:8px;color:#333"></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h3>Megjegyzés / Hibák</h3>
+    <p class="small">A mezők JSON tömbök; a backend a következő kulcsokat várja a POST-ban: <code>classes</code>, <code>subjects</code>, <code>csr</code>, <code>teachers</code>.</p>
+    <pre id="previewBox"></pre>
+  </div>
+
+<script>
+function download(filename, text) {
+  try {
+    // validate JSON
+    JSON.parse(text);
+  } catch (e) {
+    alert('A JSON érvénytelen: ' + e.message);
+    return;
+  }
+  const blob = new Blob([text], {type:'application/json;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+}
+
+async function upload() {
+  const url = document.getElementById('serverUrl').value;
+  let payload;
+  try {
+    payload = {
+      classes: JSON.parse(document.getElementById('classes').value || '[]'),
+      subjects: JSON.parse(document.getElementById('subjects').value || '[]'),
+      csr: JSON.parse(document.getElementById('csr').value || '[]'),
+      teachers: JSON.parse(document.getElementById('teachers').value || '[]')
+    };
+  } catch (err) {
+    document.getElementById('uploadResult').textContent = 'JSON parse hiba: ' + err.message;
+    return;
+  }
+
+  document.getElementById('uploadResult').textContent = 'Uploading...';
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    document.getElementById('uploadResult').textContent = 'Server response: ' + JSON.stringify(data);
+  } catch (err) {
+    document.getElementById('uploadResult').textContent = 'Upload failed: ' + err;
+  }
+}
+
+function preview() {
+  try {
+    const payload = {
+      classes: JSON.parse(document.getElementById('classes').value || '[]'),
+      subjects: JSON.parse(document.getElementById('subjects').value || '[]'),
+      csr: JSON.parse(document.getElementById('csr').value || '[]'),
+      teachers: JSON.parse(document.getElementById('teachers').value || '[]')
+    };
+    document.getElementById('previewBox').textContent = JSON.stringify(payload, null, 2);
+    document.getElementById('uploadResult').textContent = '';
+  } catch (err) {
+    document.getElementById('previewBox').textContent = 'JSON parse hiba: ' + err.message;
+  }
+}
+</script>
+
+</body>
+</html>
