@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Prioritások és javított fixed kezelés</title>
+  <title>Tantárgyfelosztás — Javított solver + subject priority szerkesztés</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
@@ -49,6 +49,8 @@
     .pri-norm{background:#f1f5f9;color:#334155}
     .pri-low{background:#fff4e6;color:#ad5700}
     .pri-nap{background:#f3f4f6;color:#6b7280}
+    .sub-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
+    .sub-left{display:flex;gap:8px;align-items:center}
   </style>
 </head>
 <body>
@@ -66,8 +68,8 @@
   </header>
 
   <main>
-    <h1>Admin felület — Prioritások & javított fixed kezelés</h1>
-    <p class="small">Fix órák mostantól szigorúan lefoglalódnak: <code>full:true</code> esetén a tanár megkapja az adott osztály-tantárgy teljes igényét; ha csak <code>hours</code> van megadva, annyit foglalunk. Tantárgy-prioritások: Magas előre, Napközi mindig utolsó.</p>
+    <h1>Admin felület — Javított solver + tantárgy priority szerkesztés</h1>
+    <p class="small">A solver most szigorúan kezeli a fixeket (<code>full:true</code> lefoglalja a teljes igényt). A tantárgyak prioritása szerkeszthető a listában — import után is.</p>
 
     <div class="container">
       <!-- Subjects -->
@@ -90,7 +92,7 @@
           <button id="clearSubjectsBtn" style="margin-left:auto">Összes törlése</button>
           <button class="next-btn" data-next="classesSection">Ugrás a következőre</button>
         </div>
-        <div id="subjectsList" class="list"></div>
+        <div id="subjectsList" class="list" style="margin-top:10px"></div>
       </section>
 
       <!-- Classes -->
@@ -152,7 +154,7 @@
       <!-- Solver -->
       <section id="solverSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
         <h2>Solver & Eredmények</h2>
-        <p class="small">Fix órák most elsőként lefoglalódnak; a solver utána egész órákra oszt, majd .5-et, ha szükséges.</p>
+        <p class="small">Fix órák most elsőként lefoglalódnak; a solver utána egész órákra oszt, majd .5-et, ha szükséges (ahol eredetileg is volt .5). A cél: eltüntetni a tantárgyi igényeket, Napközi legyen utolsó.</p>
         <div class="btn-row">
           <button id="runSolveBtn">Solve (Greedy)</button>
           <button id="exportAllocationsBtn">Export Allocations (JSON)</button>
@@ -208,12 +210,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(store.subjects.length===0){ box.textContent='Nincsenek tantárgyak'; return; }
     store.subjects.forEach(s=>{
       const row = document.createElement('div'); row.className='item';
-      let badgeClass='pri-norm', badgeText='Normál';
-      if(s.priority===2){ badgeClass='pri-high'; badgeText='Magas'; }
-      else if(s.priority===0){ badgeClass='pri-low'; badgeText='Alacsony'; }
-      else if(s.priority===-1){ badgeClass='pri-nap'; badgeText='Napközi'; }
-      row.innerHTML = `<div><strong>${s.display_name}</strong> <span class="muted">(${s.subject_id})</span><span class="priority-badge ${badgeClass}">${badgeText}</span></div>
-                       <div><button data-id="${s.subject_id}" class="del-sub">Törlés</button></div>`;
+      // left: name + id
+      const left = document.createElement('div'); left.className='sub-left';
+      left.innerHTML = `<strong>${s.display_name}</strong> <span class="muted">(${s.subject_id})</span>`;
+      // priority select
+      const sel = document.createElement('select');
+      sel.innerHTML = `<option value="2">Magas</option><option value="1">Normál</option><option value="0">Alacsony</option><option value="-1">Napközi</option>`;
+      sel.value = (typeof s.priority === 'number')? String(s.priority) : '1';
+      sel.addEventListener('change', ()=>{ s.priority = parseInt(sel.value,10); renderSubjects(); renderCSR(); renderSummary(); });
+      left.appendChild(sel);
+
+      const right = document.createElement('div');
+      right.innerHTML = `<button data-id="${s.subject_id}" class="del-sub">Törlés</button>`;
+      row.appendChild(left); row.appendChild(right);
       box.appendChild(row);
     });
     box.querySelectorAll('.del-sub').forEach(b=>b.addEventListener('click', ()=>{
@@ -393,12 +402,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); tbl.appendChild(trTotals); box.appendChild(tbl);
   }
 
-  // ---------- SOLVER (robust fixed handling + priority) ----------
+  // ---------- SOLVER (robust fixed handling + priority + .5 pass) ----------
   function solveGreedy(){
     // Robust, fixed-first solver:
     // - fixed.full == true  -> assign the entire CSR demand for that class+subject to that teacher
     // - fixed.hours present -> assign up to that many hours (clamped to demand)
-    // After applying fixed, normal greedy allocation (1h first, then .5 if original had .5).
+    // After applying fixed, normal greedy allocation (1h first, then .5 if original had .5 or original demand ends with .5)
     const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
 
     // 1) Build originalDemand + working demand
