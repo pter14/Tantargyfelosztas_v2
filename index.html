@@ -2,13 +2,11 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Javított solver + subject priority szerkesztés</title>
+  <title>Tantárgyfelosztás — Javított solver (stabil .5 kezelés)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
-    :root{
-      --card-bg:#fff; --page-bg:#f6f7fb; --muted:#666; --accent:#0b6efd; --highlight:rgba(11,110,253,0.12);
-    }
+    :root{--card-bg:#fff;--page-bg:#f6f7fb;--muted:#666;--accent:#0b6efd;--highlight:rgba(11,110,253,0.12)}
     body{font-family:Arial,Helvetica,sans-serif;margin:0;background:var(--page-bg);color:#111}
     header{background:#fff;border-bottom:1px solid #e9eef6;padding:10px 16px;position:sticky;top:0;z-index:50}
     .topbar{max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:12px}
@@ -42,15 +40,12 @@
     .csr-highlight-row { background: var(--highlight) !important; }
     .csr-highlight-col { background: var(--highlight) !important; }
     .btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .section-footer{margin-top:12px;display:flex;justify-content:flex-end;gap:8px}
     @media (max-width:900px){ .container{grid-template-columns:1fr} .csr-table th:first-child{min-width:200px} }
     .priority-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:12px;margin-left:8px}
     .pri-high{background:#e6f0ff;color:#0b6efd}
     .pri-norm{background:#f1f5f9;color:#334155}
     .pri-low{background:#fff4e6;color:#ad5700}
     .pri-nap{background:#f3f4f6;color:#6b7280}
-    .sub-row{display:flex;gap:8px;align-items:center;justify-content:space-between}
-    .sub-left{display:flex;gap:8px;align-items:center}
   </style>
 </head>
 <body>
@@ -68,8 +63,8 @@
   </header>
 
   <main>
-    <h1>Admin felület — Javított solver + tantárgy priority szerkesztés</h1>
-    <p class="small">A solver most szigorúan kezeli a fixeket (<code>full:true</code> lefoglalja a teljes igényt). A tantárgyak prioritása szerkeszthető a listában — import után is.</p>
+    <h1>Admin felület — Stabil solver (.5 kezelés javítva)</h1>
+    <p class="small">Fix/full lefoglalása megmaradt. A solver most prioritással és javított .5 logikával fut.</p>
 
     <div class="container">
       <!-- Subjects -->
@@ -92,7 +87,7 @@
           <button id="clearSubjectsBtn" style="margin-left:auto">Összes törlése</button>
           <button class="next-btn" data-next="classesSection">Ugrás a következőre</button>
         </div>
-        <div id="subjectsList" class="list" style="margin-top:10px"></div>
+        <div id="subjectsList" class="list"></div>
       </section>
 
       <!-- Classes -->
@@ -154,7 +149,7 @@
       <!-- Solver -->
       <section id="solverSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
         <h2>Solver & Eredmények</h2>
-        <p class="small">Fix órák most elsőként lefoglalódnak; a solver utána egész órákra oszt, majd .5-et, ha szükséges (ahol eredetileg is volt .5). A cél: eltüntetni a tantárgyi igényeket, Napközi legyen utolsó.</p>
+        <p class="small">Fix órák most elsőként lefoglalódnak; a solver utána egész órákra oszt, majd .5-et, ha az eredeti igényben volt .5. Megpróbáljuk teljesen kielégíteni a tantárgyi igényeket (Napközi utolsó).</p>
         <div class="btn-row">
           <button id="runSolveBtn">Solve (Greedy)</button>
           <button id="exportAllocationsBtn">Export Allocations (JSON)</button>
@@ -204,26 +199,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
     store.classes.push({class_id:'M2', display_name:'Magántanuló 2', groups:[]});
   }
 
-  // ---------- Renderers ----------
+  // ---------- Renderers (subjects/classes/teachers/CSR/summary) ----------
   function renderSubjects(){
     const box = el('subjectsList'); box.innerHTML='';
     if(store.subjects.length===0){ box.textContent='Nincsenek tantárgyak'; return; }
     store.subjects.forEach(s=>{
       const row = document.createElement('div'); row.className='item';
-      // left: name + id
-      const left = document.createElement('div'); left.className='sub-left';
-      left.innerHTML = `<strong>${s.display_name}</strong> <span class="muted">(${s.subject_id})</span>`;
-      // priority select
-      const sel = document.createElement('select');
-      sel.innerHTML = `<option value="2">Magas</option><option value="1">Normál</option><option value="0">Alacsony</option><option value="-1">Napközi</option>`;
+      const left = document.createElement('div'); left.innerHTML = `<strong>${s.display_name}</strong> <span class="muted">(${s.subject_id})</span>`;
+      const sel = document.createElement('select'); sel.innerHTML = `<option value="2">Magas</option><option value="1">Normál</option><option value="0">Alacsony</option><option value="-1">Napközi</option>`;
       sel.value = (typeof s.priority === 'number')? String(s.priority) : '1';
       sel.addEventListener('change', ()=>{ s.priority = parseInt(sel.value,10); renderSubjects(); renderCSR(); renderSummary(); });
       left.appendChild(sel);
-
-      const right = document.createElement('div');
-      right.innerHTML = `<button data-id="${s.subject_id}" class="del-sub">Törlés</button>`;
-      row.appendChild(left); row.appendChild(right);
-      box.appendChild(row);
+      const right = document.createElement('div'); right.innerHTML = `<button data-id="${s.subject_id}" class="del-sub">Törlés</button>`;
+      row.appendChild(left); row.appendChild(right); box.appendChild(row);
     });
     box.querySelectorAll('.del-sub').forEach(b=>b.addEventListener('click', ()=>{
       const id = b.getAttribute('data-id'); if(!confirm('Törlöd a tantárgyat?')) return;
@@ -402,169 +390,170 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); tbl.appendChild(trTotals); box.appendChild(tbl);
   }
 
-  // ---------- SOLVER (robust fixed handling + priority + .5 pass) ----------
+  // ---------- SOLVER: combined stable version ----------
   function solveGreedy(){
-    // Robust, fixed-first solver:
-    // - fixed.full == true  -> assign the entire CSR demand for that class+subject to that teacher
-    // - fixed.hours present -> assign up to that many hours (clamped to demand)
-    // After applying fixed, normal greedy allocation (1h first, then .5 if original had .5 or original demand ends with .5)
-    const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
+    // Goals:
+    // 1) Apply fixed assignments strictly: full=true => assign the ENTIRE current demand for that class+subject to that teacher.
+    //    if fixed.hours provided => allocate min(fixed.hours, demand).
+    // 2) After fixed, greedy allocate integer hours by subject priority and class order, preferring:
+    //    a) teachers who already have a fixed for that class+subject (so fixed teachers keep same place),
+    //    b) then teachers with larger remaining capacity.
+    // 3) Finally, allocate 0.5 hours for those class+subject that originally had .5 (or ended with .5),
+    //    ensuring we try to give 0.5 if a teacher has >=0.5 capacity.
+    const ROUND = v => Math.round((v + Number.EPSILON) * 100) / 100;
 
-    // 1) Build originalDemand + working demand
-    const originalDemand = {};
+    // build original and working demand maps
+    const original = {};
     const demand = {};
-    (store.csr || []).forEach(c => {
-      if(!originalDemand[c.class_id]) originalDemand[c.class_id] = {};
-      if(!demand[c.class_id]) demand[c.class_id] = {};
-      const hrs = Number(c.hours_per_week ?? c.hours ?? 0);
-      originalDemand[c.class_id][c.subject_id] = round2(hrs);
-      demand[c.class_id][c.subject_id] = round2(hrs);
+    (store.csr || []).forEach(r => {
+      if(!original[r.class_id]) original[r.class_id] = {};
+      if(!demand[r.class_id]) demand[r.class_id] = {};
+      const hrs = Number(r.hours_per_week ?? r.hours ?? 0);
+      original[r.class_id][r.subject_id] = ROUND(hrs);
+      demand[r.class_id][r.subject_id] = ROUND(hrs);
     });
 
-    // 2) teacher remaining capacities
-    const teacherRemaining = {};
-    (store.teachers || []).forEach(t => { teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0); });
+    // teacher capacities
+    const teacherCap = {};
+    (store.teachers || []).forEach(t => teacherCap[t.teacher_id] = Number(t.weekly_hours || 0));
 
     const allocations = [];
 
-    // 3) APPLY FIXES (strict): iterate teachers' fixed list and consume demand accordingly
+    // APPLY FIXES (strict)
     (store.teachers || []).forEach(t => {
       const tid = t.teacher_id;
       (t.fixed || []).forEach(f => {
-        const cid = f.class_id;
-        const sid = f.subject_id;
+        const cid = f.class_id; const sid = f.subject_id;
         if(!cid || !sid) return;
-        const curDemand = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        if(curDemand <= 0) return;
-
-        const isFull = !!f.full;
-        const specifiedHours = (f.hours !== undefined && f.hours !== null) ? Number(f.hours) : NaN;
-
-        let toAlloc = 0;
-        if(isFull){
-          toAlloc = curDemand;
-        } else if(!Number.isNaN(specifiedHours) && specifiedHours > 0){
-          toAlloc = Math.min(specifiedHours, curDemand);
-        } else {
-          return;
-        }
-
-        toAlloc = round2(toAlloc);
-        if(toAlloc <= 0) return;
-
-        allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: toAlloc, fixed: true });
-
-        demand[cid][sid] = round2(curDemand - toAlloc);
-
-        teacherRemaining[tid] = round2((teacherRemaining[tid] || 0) - toAlloc);
+        const cur = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
+        if(cur <= 0) return;
+        const full = !!f.full;
+        const spec = (f.hours !== undefined && f.hours !== null) ? Number(f.hours) : NaN;
+        let assign = 0;
+        if(full) assign = cur;
+        else if(!Number.isNaN(spec) && spec > 0) assign = Math.min(spec, cur);
+        else return;
+        assign = ROUND(assign);
+        if(assign <= 0) return;
+        allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: assign, fixed: true});
+        demand[cid][sid] = ROUND(cur - assign);
+        teacherCap[tid] = ROUND( (teacherCap[tid] || 0) - assign );
       });
     });
 
-    // 4) Build teachersBySubject mapping for non-fixed allocation
+    // build helpers
     const teachersBySubject = {};
+    (store.teachers || []).forEach(t => { (t.subjects || []).forEach(sid => { if(!teachersBySubject[sid]) teachersBySubject[sid]=[]; teachersBySubject[sid].push(t.teacher_id); }); });
+
+    // record which teachers had a fixed for (class,subject) so we can prefer them
+    const fixedOwners = {}; // fixedOwners[cid] = { sid: Set of teacher_ids }
     (store.teachers || []).forEach(t => {
-      (t.subjects || []).forEach(sid => {
-        if(!teachersBySubject[sid]) teachersBySubject[sid] = [];
-        teachersBySubject[sid].push(t.teacher_id);
+      (t.fixed || []).forEach(f => {
+        if(!f.class_id || !f.subject_id) return;
+        if(!fixedOwners[f.class_id]) fixedOwners[f.class_id] = {};
+        if(!fixedOwners[f.class_id][f.subject_id]) fixedOwners[f.class_id][f.subject_id] = new Set();
+        fixedOwners[f.class_id][f.subject_id].add(t.teacher_id);
       });
     });
 
-    // 5) Prepare subjectList sorted by priority (desc) if priority exists on subject; fallback normal order
-    const subjectList = (store.subjects || []).slice()
-      .sort((a,b)=>{
-        const pa = (typeof a.priority === 'number') ? a.priority : 1;
-        const pb = (typeof b.priority === 'number') ? b.priority : 1;
-        return pb - pa;
-      }).map(s => s.subject_id);
+    // subject list by priority (high first); Napközi (-1) ends up last
+    const subjectList = (store.subjects || []).slice().sort((a,b)=>{
+      const pa = (typeof a.priority === 'number') ? a.priority : 1;
+      const pb = (typeof b.priority === 'number') ? b.priority : 1;
+      return pb - pa;
+    }).map(s=>s.subject_id);
 
-    const classList = (store.classes || []).map(c => c.class_id);
+    const classList = (store.classes || []).map(c=>c.class_id);
 
-    function sortCandidatesByCap(cands){
-      cands.sort((a,b)=> (teacherRemaining[b] || 0) - (teacherRemaining[a] || 0));
+    function rankCandidatesFor(cid, sid, candIds){
+      // prefer:
+      // 1) teachers who were fixed for this (cid,sid)
+      // 2) then by remaining capacity desc
+      candIds.sort((A,B)=>{
+        const aFixed = (fixedOwners[cid] && fixedOwners[cid][sid] && fixedOwners[cid][sid].has(A)) ? 1 : 0;
+        const bFixed = (fixedOwners[cid] && fixedOwners[cid][sid] && fixedOwners[cid][sid].has(B)) ? 1 : 0;
+        if(aFixed !== bFixed) return bFixed - aFixed;
+        return (teacherCap[B]||0) - (teacherCap[A]||0);
+      });
+      return candIds;
     }
 
-    // 6) FIRST PASS: allocate integer hours greedily for remaining demand
+    // FIRST PASS: integer hours
     for(const sid of subjectList){
       for(const cid of classList){
         let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        rem = round2(rem);
+        rem = ROUND(rem);
         if(rem < 1) continue;
         const intPart = Math.floor(rem);
-
-        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 1);
+        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherCap[tid] || 0) >= 1);
         if(candidates.length === 0) continue;
-        sortCandidatesByCap(candidates);
-
-        let toAssign = intPart;
-        while(toAssign > 0 && candidates.length > 0){
-          const tid = candidates[0];
-          const capFull = Math.floor(teacherRemaining[tid] || 0);
-          if(capFull <= 0){ candidates.shift(); continue; }
-          const allocateUnits = Math.min(capFull, toAssign);
-          const allocateHours = allocateUnits * 1.0;
-          allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateHours, fixed: false });
-          teacherRemaining[tid] = round2((teacherRemaining[tid] || 0) - allocateHours);
-          toAssign -= allocateUnits;
-          rem = round2(rem - allocateHours);
-          if(Math.floor(teacherRemaining[tid]) <= 0) candidates.shift();
+        rankCandidatesFor(cid, sid, candidates);
+        let need = intPart;
+        let idx = 0;
+        while(need > 0 && idx < candidates.length){
+          const tid = candidates[idx];
+          const capUnits = Math.floor(teacherCap[tid] || 0);
+          if(capUnits <= 0){ idx++; continue; }
+          const take = Math.min(capUnits, need);
+          const hours = take * 1.0;
+          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours, fixed:false});
+          teacherCap[tid] = ROUND((teacherCap[tid] || 0) - hours);
+          need -= take;
+          rem = ROUND(rem - hours);
+          if( (teacherCap[tid]||0) < 1 ) idx++;
         }
-
         if(!demand[cid]) demand[cid] = {};
         demand[cid][sid] = rem;
       }
     }
 
-    // 7) SECOND PASS: allocate .5 only for those originally having .5
+    // SECOND PASS: halves (.5) for ANY original demand that had .5
     for(const sid of subjectList){
       for(const cid of classList){
-        const orig = (originalDemand[cid] && originalDemand[cid][sid] !== undefined) ? Number(originalDemand[cid][sid]) : 0;
-        const origRounded = Math.round((orig + Number.EPSILON) * 10) / 10;
-        const hasHalf = Math.abs(origRounded - Math.floor(origRounded) - 0.5) < 1e-9;
-        if(!hasHalf) continue;
-
+        const orig = (original[cid] && original[cid][sid] !== undefined) ? Number(original[cid][sid]) : 0;
+        const orig10 = Math.round((orig + Number.EPSILON) * 10) / 10;
+        const hadHalf = Math.abs(orig10 - Math.floor(orig10) - 0.5) < 1e-9;
+        if(!hadHalf) continue;
         let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
-        rem = round2(rem);
+        rem = ROUND(rem);
         if(rem < 0.5) continue;
-
-        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 0.5);
+        let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherCap[tid] || 0) >= 0.5);
         if(candidates.length === 0) continue;
-        sortCandidatesByCap(candidates);
-
-        while(rem >= 0.5 && candidates.length > 0){
-          const tid = candidates[0];
-          const cap = teacherRemaining[tid] || 0;
-          if(cap < 0.5){ candidates.shift(); continue; }
-          const alloc = 0.5;
-          allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: alloc, fixed: false });
-          teacherRemaining[tid] = round2(teacherRemaining[tid] - alloc);
-          rem = round2(rem - alloc);
-          if(teacherRemaining[tid] < 0.5) candidates.shift();
+        rankCandidatesFor(cid, sid, candidates);
+        let ci = 0;
+        while(rem >= 0.5 && ci < candidates.length){
+          const tid = candidates[ci];
+          if((teacherCap[tid]||0) < 0.5){ ci++; continue; }
+          // allocate 0.5 to this teacher
+          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: 0.5, fixed:false});
+          teacherCap[tid] = ROUND(teacherCap[tid] - 0.5);
+          rem = ROUND(rem - 0.5);
+          if((teacherCap[tid]||0) < 0.5) ci++;
         }
-
         if(!demand[cid]) demand[cid] = {};
         demand[cid][sid] = rem;
       }
     }
 
-    // 8) Collect leftover demands >= 0.5
+    // leftover collection (>= 0.5)
     const leftover = [];
     Object.keys(demand).forEach(cid=>{
       Object.keys(demand[cid]).forEach(sid=>{
         const h = Number(demand[cid][sid] || 0);
-        if(h >= 0.5 - 1e-9) leftover.push({ class_id: cid, subject_id: sid, hours: +h.toFixed(2) });
+        if(h >= 0.5 - 1e-9) leftover.push({class_id: cid, subject_id: sid, hours: +h.toFixed(2)});
       });
     });
 
-    return { allocations, leftover, teacherRemaining };
+    return {allocations, leftover, teacherRemaining: teacherCap};
   }
 
   window._TF_SOLVE = solveGreedy;
 
+  // ---------- show results ----------
   function showSolverResults(res){
     const box = el('solverResults'); box.style.display='block'; box.innerHTML='';
     const title = document.createElement('div'); title.innerHTML = '<strong>Solver eredmény (Greedy)</strong>';
     box.appendChild(title);
-
     const alloc = res.allocations || [];
     const tbl = document.createElement('table'); tbl.style.marginTop='8px';
     tbl.innerHTML = '<thead><tr><th>Tanár</th><th>Osztály</th><th>Tárgy</th><th>Óra</th><th>Fix</th></tr></thead>';
@@ -577,7 +566,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); box.appendChild(tbl);
 
     if(res.leftover && res.leftover.length>0){
-      const warn = document.createElement('div'); warn.className='bad'; warn.style.marginTop='10px'; warn.textContent = 'FIGYELEM: van kielégítetlen igény — lásd alább.';
+      const warn = document.createElement('div'); warn.style.marginTop='10px'; warn.textContent = 'FIGYELEM: van kielégítetlen igény — lásd alább.';
       box.appendChild(warn);
       const lt = document.createElement('table'); lt.style.marginTop='8px';
       lt.innerHTML = '<thead><tr><th>Osztály</th><th>Tárgy</th><th>Óra</th></tr></thead>';
@@ -587,7 +576,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       });
       lt.appendChild(lbody); box.appendChild(lt);
     } else {
-      const ok = document.createElement('div'); ok.className='ok'; ok.style.marginTop='10px'; ok.textContent = 'Minden igényt sikerült kiosztani (a greedy algoritmus szerint).';
+      const ok = document.createElement('div'); ok.style.marginTop='10px'; ok.textContent = 'Minden igényt sikerült kiosztani (a greedy algoritmus szerint).';
       box.appendChild(ok);
     }
 
@@ -607,13 +596,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     box.appendChild(btn);
   }
 
-  // ---------- Excel export with TeacherDetails (horizontal teacher blocks) ----------
+  // ---------- Excel export (TeacherDetails etc.) ----------
   function prepareExportData(){
     const s = store;
     const res = solveGreedy();
     const allocations = res.allocations || [];
 
-    // teacher summary sheet
     const allocByTeacher = {};
     allocations.forEach(a => { allocByTeacher[a.teacher_id] = (allocByTeacher[a.teacher_id]||0) + Number(a.hours||0); });
     const teachersSheet = [['Tanár azonosító','Tanár név','Heti összes óraszám','Kiosztott óraszám','Maradó óraszám','Megjegyzés']];
@@ -625,11 +613,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       teachersSheet.push([t.teacher_id, t.name, weekly, allocated, remaining, note]);
     });
 
-    // allocations sheet
     const allocSheet = [['Tanár azonosító','Osztály','Tárgy','Óra','Fix']];
     allocations.forEach(a => allocSheet.push([a.teacher_id, a.class_id, a.subject_id, (a.hours%1===0)?a.hours:a.hours.toFixed(1), a.fixed?'igen':'nem']));
 
-    // missing sheet
     const classIds = (s.classes||[]).map(c=>c.class_id);
     const subjectNames = (s.subjects||[]).map(su=>({id: su.subject_id, name: su.display_name}));
     const leftoverMap = {};
@@ -645,7 +631,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     classIds.forEach(cid=>{ let cs=0; subjectNames.forEach(sn=>{ cs += (leftoverMap[cid] && leftoverMap[cid][sn.id])?leftoverMap[cid][sn.id]:0; }); totalsRow.push((cs%1===0)?cs:Number(cs.toFixed(1))); });
     missingSheet.push(totalsRow);
 
-    // TeacherDetails sheet
+    // TeacherDetails horizontal blocks
     const teachers = s.teachers || [];
     const byTeacher = {};
     teachers.forEach(t => byTeacher[t.teacher_id] = []);
@@ -693,7 +679,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
 
     const meta = [['Export időpont', new Date().toLocaleString()],['Tantárgyak száma', s.subjects.length],['Osztályok száma', s.classes.length],['Tanárok száma', s.teachers.length],['Allokáció sorok', allocations.length],['Leftover sorok', (res.leftover||[]).length]];
-
     return {teachersSheet, allocSheet, missingSheet, meta, teacherDetails};
   }
 
@@ -701,38 +686,34 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       const data = prepareExportData();
       const wb = XLSX.utils.book_new();
-      const ws1 = XLSX.utils.aoa_to_sheet(data.teachersSheet); XLSX.utils.book_append_sheet(wb, ws1, 'Teachers Summary');
-      const ws2 = XLSX.utils.aoa_to_sheet(data.allocSheet); XLSX.utils.book_append_sheet(wb, ws2, 'Allocations');
-      const ws3 = XLSX.utils.aoa_to_sheet(data.missingSheet); XLSX.utils.book_append_sheet(wb, ws3, 'MissingHours');
-      const ws4 = XLSX.utils.aoa_to_sheet(data.meta); XLSX.utils.book_append_sheet(wb, ws4, 'Meta');
-      const ws5 = XLSX.utils.aoa_to_sheet(data.teacherDetails); XLSX.utils.book_append_sheet(wb, ws5, 'TeacherDetails');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data.teachersSheet), 'Teachers Summary');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data.allocSheet), 'Allocations');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data.missingSheet), 'MissingHours');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data.meta), 'Meta');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(data.teacherDetails), 'TeacherDetails');
       XLSX.writeFile(wb, filename || 'tantargyfelosztas_export.xlsx');
     } catch(err){ console.error('Export error', err); alert('Hiba az export során: ' + err.message); }
   }
 
-  // ---------- Import/Export & Clear actions ----------
-  // Subjects
+  // ---------- Import/Export & UI actions (Subjects/Classes/Teachers/CSR) ----------
   el('addSubjectBtn').addEventListener('click', ()=>{ const name=el('subjectName').value.trim(); const pri=parseInt(el('subjectPriority').value,10); if(!name){ alert('Adj meg nevet'); return; } store.subjects.push({subject_id: makeSubjectId(name), display_name: name, priority: pri}); el('subjectName').value=''; renderSubjects(); renderCSR(); renderSummary(); renderTeachers(); });
   el('exportSubjectsBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.subjects,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='subjects.json'; a.click(); });
   el('importSubjectsBtn').addEventListener('click', ()=> el('fileInputSubjects').click());
   el('fileInputSubjects').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload = ev => { try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('subjects.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(typeof it==='string'){ const name=it.trim(); if(name) store.subjects.push({subject_id:makeSubjectId(name), display_name:name, priority:1}); } else if(it && typeof it==='object'){ const name=(it.display_name||it.name||'').toString().trim(); const sid=(it.subject_id||it.id||'').toString().trim(); const priority = (typeof it.priority==='number')?it.priority: (it.priority?Number(it.priority):1); if(name){ const id = sid || makeSubjectId(name); store.subjects.push({subject_id:id, display_name:name, priority: priority}); } } }); renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); alert('Import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
   el('clearSubjectsBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes tantárgyat?')) return; store.subjects=[]; store.csr = []; store.teachers.forEach(t=> t.subjects = []); renderSubjects(); renderCSR(); renderTeachers(); renderSummary(); });
 
-  // Classes
   el('addClassBtn').addEventListener('click', ()=>{ const display=el('newClassDisplay').value.trim(); if(!display){ alert('Adj meg nevet'); return; } const id=sanitizeClassId(display); if(store.classes.some(c=>c.class_id.toUpperCase()===id.toUpperCase())){ alert('Ilyen osztály már van'); return; } store.classes.push({class_id:id, display_name:display, groups:[]}); el('newClassDisplay').value=''; renderClasses(); renderCSR(); renderSummary(); renderTeachers(); });
   el('exportClassesBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.classes,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='classes.json'; a.click(); });
   el('importClassesBtn').addEventListener('click', ()=> el('fileInputClasses').click());
   el('fileInputClasses').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('classes.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && (it.class_id||it.display_name)){ const id = it.class_id || sanitizeClassId(it.display_name||''); const name = it.display_name || it.class_id || id; if(!store.classes.some(c=>c.class_id===id)) store.classes.push({class_id:id, display_name:name, groups:[]}); } }); renderClasses(); renderCSR(); renderSummary(); alert('Import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
   el('clearClassesBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes osztályt?')) return; store.classes=[]; initDefaultClasses(); store.csr = []; store.teachers.forEach(t=>{ if(t.fixed) t.fixed = []; }); renderClasses(); renderCSR(); renderTeachers(); renderSummary(); });
 
-  // Teachers
   el('addTeacherBtn').addEventListener('click', ()=>{ const name=el('teacherName').value.trim(); const hours=parseFloat(el('teacherHours').value||'0')||0; if(!name){ alert('Adj meg nevet'); return; } const id=makeTeacherId(name); store.teachers.push({teacher_id:id, name, weekly_hours: hours, subjects: [], fixed: []}); el('teacherName').value=''; el('teacherHours').value=''; renderTeachers(); });
   el('exportTeachersBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.teachers,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='teachers.json'; a.click(); });
   el('importTeachersBtn').addEventListener('click', ()=> el('fileInputTeachers').click());
   el('fileInputTeachers').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('teachers.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && (it.name || it.teacher_id)){ const name=it.name || it.teacher_id || 'Tanár'; let id = it.teacher_id || makeTeacherId(name); if(store.teachers.some(t=>t.teacher_id===id)){ let i=1; while(store.teachers.some(t=>t.teacher_id===`${id}_${i}`)) i++; id = `${id}_${i}`; } const weekly_hours = parseFloat(it.weekly_hours||it.hours||0) || 0; const subjects = Array.isArray(it.subjects)?it.subjects.slice():[]; const fixed = Array.isArray(it.fixed)? it.fixed.map(f=>({subject_id:f.subject_id,class_id:f.class_id,hours: parseFloat(f.hours||0)||0, full: !!f.full})):[]; store.teachers.push({teacher_id:id, name, weekly_hours, subjects, fixed}); } }); renderTeachers(); alert('Tanárok importálva'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
   el('clearTeachersBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd az összes tanárt?')) return; store.teachers=[]; renderTeachers(); });
 
-  // CSR import/export/clear
   el('exportCsrBtn').addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(store.csr,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='csr.json'; a.click(); });
   el('importCsrBtn').addEventListener('click', ()=> el('fileInputCsr').click());
   el('fileInputCsr').addEventListener('change', e=>{ const f=e.target.files && e.target.files[0]; e.target.value=''; if(!f) return; const r=new FileReader(); r.onload=ev=>{ try{ const parsed=JSON.parse(ev.target.result); if(!Array.isArray(parsed)){ alert('csr.json: tömböt várunk'); return; } parsed.forEach(it=>{ if(it && it.class_id && it.subject_id){ const h = parseFloat(it.hours_per_week||it.hours||0) || 0; const idx = store.csr.findIndex(x=>x.class_id===it.class_id && x.subject_id===it.subject_id); if(idx>=0) store.csr[idx].hours_per_week = h; else store.csr.push({class_id: it.class_id, subject_id: it.subject_id, hours_per_week: h}); } }); renderCSR(); renderSummary(); renderTeachers(); alert('CSR import kész'); } catch(err){ alert('Hibás JSON: '+err.message); } }; r.readAsText(f,'utf-8'); });
@@ -744,10 +725,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   el('exportAllocationsBtn').addEventListener('click', ()=>{ try{ const res = solveGreedy(); const blob = new Blob([JSON.stringify(res.allocations,null,2)], {type:'application/json'}); const a=document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'allocations.json'; a.click(); URL.revokeObjectURL(a.href);} catch(e){ alert('Hiba: '+e.message); }});
   el('exportExcelBtn').addEventListener('click', ()=>{ exportToExcelFile('tantargyfelosztas_export.xlsx'); });
 
-  // clear solver results
   el('clearResultsBtn').addEventListener('click', ()=>{ if(!confirm('Tényleg törlöd a solver eredményeket?')) return; el('solverResults').style.display='none'; el('solverResults').innerHTML=''; el('solveOutput').innerHTML=''; });
 
-  // ---------- Navigation helpers ----------
+  // nav
   document.querySelectorAll('#topNav button').forEach(b=> b.addEventListener('click', ()=>{ const t=b.getAttribute('data-target'); const s=el(t); if(s){ s.scrollIntoView({behavior:'smooth',block:'start'}); s.focus(); } }));
   document.querySelectorAll('.next-btn').forEach(b=> b.addEventListener('click', ()=>{ const t=b.getAttribute('data-next'); const s=el(t); if(s){ s.scrollIntoView({behavior:'smooth',block:'start'}); s.focus(); } }));
 
