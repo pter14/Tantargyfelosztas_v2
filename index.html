@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tantárgyfelosztás — Prioritások és TeacherDetails export</title>
+  <title>Tantárgyfelosztás — Prioritások és javított fixed kezelés</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
@@ -66,8 +66,8 @@
   </header>
 
   <main>
-    <h1>Admin felület — Prioritások & TeacherDetails export</h1>
-    <p class="small">Beállíthatsz prioritást a tantárgyaknak: <strong>Magas</strong> előre, <strong>Napközi</strong> mindig utolsó. Fix órák mindig elsőként kerülnek kiosztásra.</p>
+    <h1>Admin felület — Prioritások & javított fixed kezelés</h1>
+    <p class="small">Fix órák mostantól szigorúan lefoglalódnak: <code>full:true</code> esetén a tanár megkapja az adott osztály-tantárgy teljes igényét; ha csak <code>hours</code> van megadva, annyit foglalunk. Tantárgy-prioritások: Magas előre, Napközi mindig utolsó.</p>
 
     <div class="container">
       <!-- Subjects -->
@@ -152,7 +152,7 @@
       <!-- Solver -->
       <section id="solverSection" class="card" tabindex="-1" style="grid-column:1 / span 2;">
         <h2>Solver & Eredmények</h2>
-        <p class="small">A solver először egész órákra oszt, majd .5-units csak azokhoz, amelyek eredetileg .5-re végződtek. Fix órák mindig elsőként kerülnek rögzítésre.</p>
+        <p class="small">Fix órák most elsőként lefoglalódnak; a solver utána egész órákra oszt, majd .5-et, ha szükséges.</p>
         <div class="btn-row">
           <button id="runSolveBtn">Solve (Greedy)</button>
           <button id="exportAllocationsBtn">Export Allocations (JSON)</button>
@@ -208,7 +208,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(store.subjects.length===0){ box.textContent='Nincsenek tantárgyak'; return; }
     store.subjects.forEach(s=>{
       const row = document.createElement('div'); row.className='item';
-      // priority badge
       let badgeClass='pri-norm', badgeText='Normál';
       if(s.priority===2){ badgeClass='pri-high'; badgeText='Magas'; }
       else if(s.priority===0){ badgeClass='pri-low'; badgeText='Alacsony'; }
@@ -268,12 +267,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const selSub = document.createElement('select'); store.subjects.forEach(s=>{ const o=document.createElement('option'); o.value=s.subject_id; o.textContent=`${s.display_name} (${s.subject_id})`; selSub.appendChild(o); });
       const selClass = document.createElement('select'); store.classes.forEach(c=>{ const o=document.createElement('option'); o.value=c.class_id; o.textContent=`${c.display_name} (${c.class_id})`; selClass.appendChild(o); });
       const inpHours = document.createElement('input'); inpHours.type='number'; inpHours.step='0.5'; inpHours.min=0; inpHours.placeholder='Óra'; inpHours.style.width='100px';
-      const chkFull = document.createElement('input'); chkFull.type='checkbox'; const lblFull = document.createElement('label'); lblFull.style.marginLeft='6px'; lblFull.appendChild(chkFull); lblFull.appendChild(document.createTextNode(' Teljes CSR'));
+      const chkFull = document.createElement('input'); chkFull.type='checkbox'; const lblFull = document.createElement('label'); lblFull.style.marginLeft='6px'; lblFull.appendChild(chkFull); lblFull.appendChild(document.createTextNode(' Teljes CSR (full)'));
       const btnAddFix = document.createElement('button'); btnAddFix.textContent = '+ Fix';
       btnAddFix.addEventListener('click', ()=>{
         const subject_id = selSub.value; const class_id = selClass.value;
         let hours = parseFloat(inpHours.value||'0') || 0; const full = !!chkFull.checked;
-        if(full){ const rec = store.csr.find(x=>x.class_id===class_id && x.subject_id===subject_id); hours = rec ? Number(rec.hours_per_week||0) : 0; }
         if(!t.fixed) t.fixed = []; t.fixed.push({subject_id, class_id, hours, full});
         inpHours.value=''; chkFull.checked=false; renderTeachers();
       });
@@ -395,111 +393,160 @@ document.addEventListener('DOMContentLoaded', ()=>{
     tbl.appendChild(tbody); tbl.appendChild(trTotals); box.appendChild(tbl);
   }
 
-  // ---------- SOLVER (subject priority aware) ----------
+  // ---------- SOLVER (robust fixed handling + priority) ----------
   function solveGreedy(){
-    // originalDemand and demand copies
+    // Robust, fixed-first solver:
+    // - fixed.full == true  -> assign the entire CSR demand for that class+subject to that teacher
+    // - fixed.hours present -> assign up to that many hours (clamped to demand)
+    // After applying fixed, normal greedy allocation (1h first, then .5 if original had .5).
+    const round2 = v => Math.round((v + Number.EPSILON) * 100) / 100;
+
+    // 1) Build originalDemand + working demand
     const originalDemand = {};
-    store.csr.forEach(c => { if(!originalDemand[c.class_id]) originalDemand[c.class_id] = {}; originalDemand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0); });
     const demand = {};
-    store.csr.forEach(c => { if(!demand[c.class_id]) demand[c.class_id] = {}; demand[c.class_id][c.subject_id] = Number(c.hours_per_week || 0); });
-    // teacher remaining
+    (store.csr || []).forEach(c => {
+      if(!originalDemand[c.class_id]) originalDemand[c.class_id] = {};
+      if(!demand[c.class_id]) demand[c.class_id] = {};
+      const hrs = Number(c.hours_per_week ?? c.hours ?? 0);
+      originalDemand[c.class_id][c.subject_id] = round2(hrs);
+      demand[c.class_id][c.subject_id] = round2(hrs);
+    });
+
+    // 2) teacher remaining capacities
     const teacherRemaining = {};
-    store.teachers.forEach(t => { teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0); });
+    (store.teachers || []).forEach(t => { teacherRemaining[t.teacher_id] = Number(t.weekly_hours || 0); });
+
     const allocations = [];
 
-    // 1) Apply fixed assignments first (always)
-    store.teachers.forEach(t => {
+    // 3) APPLY FIXES (strict): iterate teachers' fixed list and consume demand accordingly
+    (store.teachers || []).forEach(t => {
+      const tid = t.teacher_id;
       (t.fixed || []).forEach(f => {
-        const hours = Number(f.hours || 0);
-        if(demand[f.class_id] && demand[f.class_id][f.subject_id] !== undefined){
-          const before = demand[f.class_id][f.subject_id];
-          const used = Math.min(before, hours);
-          demand[f.class_id][f.subject_id] = round2(before - used);
+        const cid = f.class_id;
+        const sid = f.subject_id;
+        if(!cid || !sid) return;
+        const curDemand = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
+        if(curDemand <= 0) return;
+
+        const isFull = !!f.full;
+        const specifiedHours = (f.hours !== undefined && f.hours !== null) ? Number(f.hours) : NaN;
+
+        let toAlloc = 0;
+        if(isFull){
+          toAlloc = curDemand;
+        } else if(!Number.isNaN(specifiedHours) && specifiedHours > 0){
+          toAlloc = Math.min(specifiedHours, curDemand);
+        } else {
+          return;
         }
-        teacherRemaining[t.teacher_id] = round2(teacherRemaining[t.teacher_id] - hours);
-        allocations.push({teacher_id: t.teacher_id, class_id: f.class_id, subject_id: f.subject_id, hours: hours, fixed: true});
+
+        toAlloc = round2(toAlloc);
+        if(toAlloc <= 0) return;
+
+        allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: toAlloc, fixed: true });
+
+        demand[cid][sid] = round2(curDemand - toAlloc);
+
+        teacherRemaining[tid] = round2((teacherRemaining[tid] || 0) - toAlloc);
       });
     });
 
-    // 2) Build teachersBySubject
+    // 4) Build teachersBySubject mapping for non-fixed allocation
     const teachersBySubject = {};
-    store.teachers.forEach(t => { (t.subjects || []).forEach(sid => { if(!teachersBySubject[sid]) teachersBySubject[sid]=[]; teachersBySubject[sid].push(t.teacher_id); }); });
+    (store.teachers || []).forEach(t => {
+      (t.subjects || []).forEach(sid => {
+        if(!teachersBySubject[sid]) teachersBySubject[sid] = [];
+        teachersBySubject[sid].push(t.teacher_id);
+      });
+    });
 
-    function sortCandidates(cands){ cands.sort((a,b)=> (teacherRemaining[b]||0) - (teacherRemaining[a]||0)); }
+    // 5) Prepare subjectList sorted by priority (desc) if priority exists on subject; fallback normal order
+    const subjectList = (store.subjects || []).slice()
+      .sort((a,b)=>{
+        const pa = (typeof a.priority === 'number') ? a.priority : 1;
+        const pb = (typeof b.priority === 'number') ? b.priority : 1;
+        return pb - pa;
+      }).map(s => s.subject_id);
 
-    // 3) Prepare subjectList sorted by priority descending (higher priority first). Napközi priority = -1 -> last.
-    const subjectList = store.subjects.slice().sort((a,b)=>{
-      const pa = (typeof a.priority==='number')?a.priority:1;
-      const pb = (typeof b.priority==='number')?b.priority:1;
-      return pb - pa; // descending
-    }).map(s=>s.subject_id);
+    const classList = (store.classes || []).map(c => c.class_id);
 
-    const classList = store.classes.map(c=>c.class_id);
+    function sortCandidatesByCap(cands){
+      cands.sort((a,b)=> (teacherRemaining[b] || 0) - (teacherRemaining[a] || 0));
+    }
 
-    // FIRST PASS: integer hours
+    // 6) FIRST PASS: allocate integer hours greedily for remaining demand
     for(const sid of subjectList){
       for(const cid of classList){
-        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0; rem = round2(rem);
+        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
+        rem = round2(rem);
+        if(rem < 1) continue;
         const intPart = Math.floor(rem);
-        if(intPart <= 0) continue;
+
         let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 1);
         if(candidates.length === 0) continue;
-        sortCandidates(candidates);
+        sortCandidatesByCap(candidates);
+
         let toAssign = intPart;
         while(toAssign > 0 && candidates.length > 0){
           const tid = candidates[0];
-          const cap = Math.floor(teacherRemaining[tid]);
-          if(cap <= 0){ candidates.shift(); continue; }
-          const allocateUnits = Math.min(cap, toAssign);
+          const capFull = Math.floor(teacherRemaining[tid] || 0);
+          if(capFull <= 0){ candidates.shift(); continue; }
+          const allocateUnits = Math.min(capFull, toAssign);
           const allocateHours = allocateUnits * 1.0;
-          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateHours, fixed: false});
-          teacherRemaining[tid] = round2(teacherRemaining[tid] - allocateHours);
+          allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: allocateHours, fixed: false });
+          teacherRemaining[tid] = round2((teacherRemaining[tid] || 0) - allocateHours);
           toAssign -= allocateUnits;
           rem = round2(rem - allocateHours);
           if(Math.floor(teacherRemaining[tid]) <= 0) candidates.shift();
         }
+
         if(!demand[cid]) demand[cid] = {};
         demand[cid][sid] = rem;
       }
     }
 
-    // SECOND PASS: halves only where original had .5
+    // 7) SECOND PASS: allocate .5 only for those originally having .5
     for(const sid of subjectList){
       for(const cid of classList){
         const orig = (originalDemand[cid] && originalDemand[cid][sid] !== undefined) ? Number(originalDemand[cid][sid]) : 0;
-        const origRounded = Math.round((orig + Number.EPSILON)*10)/10;
+        const origRounded = Math.round((orig + Number.EPSILON) * 10) / 10;
         const hasHalf = Math.abs(origRounded - Math.floor(origRounded) - 0.5) < 1e-9;
         if(!hasHalf) continue;
-        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0; rem = round2(rem);
+
+        let rem = (demand[cid] && demand[cid][sid] !== undefined) ? Number(demand[cid][sid]) : 0;
+        rem = round2(rem);
         if(rem < 0.5) continue;
+
         let candidates = (teachersBySubject[sid] || []).filter(tid => (teacherRemaining[tid] || 0) >= 0.5);
         if(candidates.length === 0) continue;
-        sortCandidates(candidates);
+        sortCandidatesByCap(candidates);
+
         while(rem >= 0.5 && candidates.length > 0){
           const tid = candidates[0];
           const cap = teacherRemaining[tid] || 0;
           if(cap < 0.5){ candidates.shift(); continue; }
           const alloc = 0.5;
-          allocations.push({teacher_id: tid, class_id: cid, subject_id: sid, hours: alloc, fixed: false});
+          allocations.push({ teacher_id: tid, class_id: cid, subject_id: sid, hours: alloc, fixed: false });
           teacherRemaining[tid] = round2(teacherRemaining[tid] - alloc);
           rem = round2(rem - alloc);
           if(teacherRemaining[tid] < 0.5) candidates.shift();
         }
+
         if(!demand[cid]) demand[cid] = {};
         demand[cid][sid] = rem;
       }
     }
 
-    // leftover
+    // 8) Collect leftover demands >= 0.5
     const leftover = [];
     Object.keys(demand).forEach(cid=>{
       Object.keys(demand[cid]).forEach(sid=>{
         const h = Number(demand[cid][sid] || 0);
-        if(h >= 0.5 - 1e-9) leftover.push({class_id: cid, subject_id: sid, hours: +h.toFixed(2)});
+        if(h >= 0.5 - 1e-9) leftover.push({ class_id: cid, subject_id: sid, hours: +h.toFixed(2) });
       });
     });
 
-    return {allocations, leftover, teacherRemaining};
+    return { allocations, leftover, teacherRemaining };
   }
 
   window._TF_SOLVE = solveGreedy;
@@ -589,9 +636,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     classIds.forEach(cid=>{ let cs=0; subjectNames.forEach(sn=>{ cs += (leftoverMap[cid] && leftoverMap[cid][sn.id])?leftoverMap[cid][sn.id]:0; }); totalsRow.push((cs%1===0)?cs:Number(cs.toFixed(1))); });
     missingSheet.push(totalsRow);
 
-    // New: TeacherDetails sheet (horizontal blocks)
-    // For each teacher build rows: header row with teacher name, then data rows: Subject | Class | Hours
-    // We'll create a 2D array where each teacher occupies 4 columns: (Tanár név (header), Tantárgy, Osztály, Óra) then two empty columns gap.
+    // TeacherDetails sheet
     const teachers = s.teachers || [];
     const byTeacher = {};
     teachers.forEach(t => byTeacher[t.teacher_id] = []);
@@ -599,23 +644,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!byTeacher[a.teacher_id]) byTeacher[a.teacher_id] = [];
       byTeacher[a.teacher_id].push({subject: a.subject_id, class_id: a.class_id, hours: a.hours});
     });
-    // compute how many rows we need = max allocations per teacher + 3 summary rows
     let maxRows = 0;
     Object.keys(byTeacher).forEach(tid => { maxRows = Math.max(maxRows, (byTeacher[tid]||[]).length); });
-    // we'll add two summary rows after data: 'Összes' and 'Maradék'
     const totalRows = maxRows + 3;
-    // build 2D array
     const teacherDetails = [];
-    for(let r=0; r<totalRows; r++) teacherDetails.push([]); // initialize rows
-    // fill columns per teacher
+    for(let r=0; r<totalRows; r++) teacherDetails.push([]);
     teachers.forEach((t, ti)=>{
       const colStart = teacherDetails[0].length;
-      // header cell with teacher name + weekly hours
       teacherDetails[0][colStart] = `${t.teacher_id} — ${t.name}`;
       teacherDetails[1][colStart] = 'Tantárgy';
       teacherDetails[1][colStart+1] = 'Osztály';
       teacherDetails[1][colStart+2] = 'Óra';
-      // fill data rows
       const allocs = byTeacher[t.teacher_id] || [];
       for(let i=0;i<maxRows;i++){
         const rowIdx = 2 + i;
@@ -627,31 +666,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
           teacherDetails[rowIdx][colStart] = ''; teacherDetails[rowIdx][colStart+1] = ''; teacherDetails[rowIdx][colStart+2] = '';
         }
       }
-      // summary rows
-      // total allocated
       const sumAlloc = (byTeacher[t.teacher_id]||[]).reduce((a,b)=>a + Number(b.hours||0),0);
       teacherDetails[2+maxRows] = teacherDetails[2+maxRows] || [];
       teacherDetails[2+maxRows][colStart] = 'Összes:';
       teacherDetails[2+maxRows][colStart+1] = '';
       teacherDetails[2+maxRows][colStart+2] = (sumAlloc%1===0)?sumAlloc:sumAlloc.toFixed(1);
-      // remaining capacity
       const remaining = round2(Number(t.weekly_hours||0) - sumAlloc);
       teacherDetails[3+maxRows] = teacherDetails[3+maxRows] || [];
       teacherDetails[3+maxRows][colStart] = 'Maradék:';
       teacherDetails[3+maxRows][colStart+1] = '';
       teacherDetails[3+maxRows][colStart+2] = (remaining%1===0)?remaining:remaining.toFixed(1);
-      // add two empty columns gap
-      // ensure each existing row has two empty cells appended for gap
       for(let rr=0; rr<totalRows; rr++){
         const row = teacherDetails[rr];
-        // fill missing with '' up to colStart+3
         while(row.length < colStart+3) row.push('');
-        // add two gap columns
         row.push(''); row.push('');
       }
     });
 
-    // meta
     const meta = [['Export időpont', new Date().toLocaleString()],['Tantárgyak száma', s.subjects.length],['Osztályok száma', s.classes.length],['Tanárok száma', s.teachers.length],['Allokáció sorok', allocations.length],['Leftover sorok', (res.leftover||[]).length]];
 
     return {teachersSheet, allocSheet, missingSheet, meta, teacherDetails};
@@ -666,7 +697,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const ws3 = XLSX.utils.aoa_to_sheet(data.missingSheet); XLSX.utils.book_append_sheet(wb, ws3, 'MissingHours');
       const ws4 = XLSX.utils.aoa_to_sheet(data.meta); XLSX.utils.book_append_sheet(wb, ws4, 'Meta');
       const ws5 = XLSX.utils.aoa_to_sheet(data.teacherDetails); XLSX.utils.book_append_sheet(wb, ws5, 'TeacherDetails');
-      // write file
       XLSX.writeFile(wb, filename || 'tantargyfelosztas_export.xlsx');
     } catch(err){ console.error('Export error', err); alert('Hiba az export során: ' + err.message); }
   }
